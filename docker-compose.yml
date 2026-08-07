@@ -1,0 +1,148 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — Voyage AI / GenSpark Full-Stack Orchestration
+# Services: FastAPI backend · Ollama (local LLM) · Vite frontend
+# ──────────────────────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+services:
+
+  # ── FastAPI Backend Engine ────────────────────────────────────────────────
+  fastapi:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: voyage-fastapi
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # ── Core ──────────────────────────────────────────────────────────────
+      DEBUG: "false"
+      LOG_LEVEL: "INFO"
+
+      # ── LLM Provider Keys (override with .env or secrets manager) ─────────
+      LOVABLE_API_KEY: "${LOVABLE_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      HUGGINGFACE_API_KEY: "${HUGGINGFACE_API_KEY:-}"
+
+      # ── Ollama (points to the sibling service) ────────────────────────────
+      OLLAMA_BASE_URL: "http://ollama:11434/v1"
+      OLLAMA_ENABLED: "true"
+
+      # ── LiteLLM (uncomment if you add a litellm service) ─────────────────
+      # LITELLM_BASE_URL: "http://litellm:4000/v1"
+
+      # ── MCP Agent ─────────────────────────────────────────────────────────
+      MCP_ALLOW_SHELL: "false"
+      MCP_ALLOW_WRITE: "false"
+      MCP_MAX_STEPS: "10"
+
+      # ── Rate Limiting ──────────────────────────────────────────────────────
+      RATE_LIMIT_ENABLED: "false"
+      RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - voyage-net
+    volumes:
+      # Mount backend source for live reload in dev
+      - ./backend:/app:ro
+    labels:
+      - "com.voyage.service=fastapi"
+      - "com.voyage.version=1.0.0"
+
+  # ── Ollama Local LLM Service ──────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: voyage-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      # Persist downloaded models between restarts
+      - ollama-models:/root/.ollama
+    # Uncomment to enable GPU support (requires nvidia-container-toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - voyage-net
+    labels:
+      - "com.voyage.service=ollama"
+
+  # ── Vite Frontend (Dev Server) ────────────────────────────────────────────
+  frontend:
+    image: node:20-alpine
+    container_name: voyage-frontend
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_SUPABASE_URL: "${VITE_SUPABASE_URL:-}"
+      VITE_SUPABASE_PUBLISHABLE_KEY: "${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
+      VITE_SUPABASE_PROJECT_ID: "${VITE_SUPABASE_PROJECT_ID:-}"
+      # Optional: point frontend to FastAPI instead of Supabase
+      VITE_FASTAPI_URL: "http://localhost:8000"
+    volumes:
+      # Mount entire project root (excludes node_modules via .dockerignore)
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - fastapi
+    networks:
+      - voyage-net
+    labels:
+      - "com.voyage.service=frontend"
+
+  # ── Optional: LiteLLM Proxy ────────────────────────────────────────────────
+  # Uncomment to enable LiteLLM as a unified gateway
+  # litellm:
+  #   image: ghcr.io/berriai/litellm:main-latest
+  #   container_name: voyage-litellm
+  #   restart: unless-stopped
+  #   ports:
+  #     - "4000:4000"
+  #   environment:
+  #     OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+  #     GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+  #     ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+  #   command: ["--model", "ollama/llama3.2", "--port", "4000"]
+  #   networks:
+  #     - voyage-net
+
+
+# ── Named Volumes ─────────────────────────────────────────────────────────────
+volumes:
+  ollama-models:
+    driver: local
+
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  voyage-net:
+    driver: bridge
+    name: voyage-ai-network
