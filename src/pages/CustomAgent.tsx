@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import {
   Settings2, Bot, Play, Plus, Save, Trash2,
   Sparkles, Check, Send, RotateCcw, Wrench, Shield, Database, Globe, Code,
-  Mic, MicOff, MessageSquare, Download, Upload
+  Mic, MicOff, MessageSquare, Download, Upload, Layers, BookOpen
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import ModelSelector, { type ModelId } from "@/components/ModelSelector";
 import { streamChat, startVoiceRecognition, type Msg } from "@/lib/api";
+import { AGENT_BLUEPRINTS, type AgentBlueprint } from "@/data/agentBlueprints";
 
 interface CustomAgentConfig {
   id: string;
@@ -61,14 +62,14 @@ const DEFAULT_AGENTS: CustomAgentConfig[] = [
 ];
 
 const AVAILABLE_CAPABILITIES = [
-  { id: "Code Generation", icon: Code, label: "Code & Architecture" },
-  { id: "Web Search", icon: Globe, label: "Live Web Intel" },
-  { id: "Data Processing", icon: Database, label: "Data & Schema Analysis" },
-  { id: "System Tool Calling", icon: Wrench, label: "MCP Tool Execution" },
-  { id: "Safety & Fact Verification", icon: Shield, label: "Fact & Bias Auditing" },
+  { id: "web_search", label: "Web Search & Fact Grounding", icon: Globe },
+  { id: "code_gen", label: "Code Generation & Execution", icon: Code },
+  { id: "data_proc", label: "Data Processing & Tabular Synthesis", icon: Database },
+  { id: "tool_calling", label: "System Tool Calling (MCP SDK)", icon: Wrench },
+  { id: "safety_guard", label: "Safety & Enterprise SAIF Guardrails", icon: Shield },
 ];
 
-const EMOJI_OPTIONS = ["🤖", "⚡", "🚀", "🔍", "🧠", "💼", "🎨", "🛠️", "💡", "🔮"];
+const EMOJI_OPTIONS = ["🤖", "⚡", "🚀", "🔍", "🧠", "💼", "🎨", "🛠️", "💡", "🔮", "🛡️", "🔬"];
 
 const STORAGE_KEY = "guidesoft_custom_agents";
 
@@ -144,9 +145,9 @@ const CustomAgent = () => {
       id: newId,
       name: "New Custom Agent",
       role: "Specialized AI Assistant",
-      systemPrompt: "You are a helpful and specialized AI agent tailored for custom workflows.",
+      systemPrompt: "You are a specialized AI assistant designed to automate complex domain workflows.",
       model: "google/gemini-3-flash-preview",
-      capabilities: ["Code Generation"],
+      capabilities: ["Web Search & Fact Grounding"],
       avatarEmoji: "🤖",
       createdAt: new Date().toISOString(),
     };
@@ -154,12 +155,35 @@ const CustomAgent = () => {
     setAgents(updated);
     saveAgents(updated);
     setSelectedAgentId(newId);
-    toast.success("New agent created. Customize below!");
+    toast.success("New agent persona draft created!");
+  };
+
+  const handleLoadBlueprint = (blueprint: AgentBlueprint) => {
+    setName(blueprint.name);
+    setRole(blueprint.role);
+    setSystemPrompt(blueprint.systemPrompt);
+    setModel(blueprint.model as ModelId);
+    setAvatarEmoji(blueprint.avatarEmoji);
+    setCapabilities([
+      ...(blueprint.capabilities.webSearch ? ["Web Search & Fact Grounding"] : []),
+      ...(blueprint.capabilities.codeExecution ? ["Code Generation & Execution"] : []),
+      ...(blueprint.capabilities.voiceSynthesis ? ["System Tool Calling (MCP SDK)"] : []),
+      ...(blueprint.capabilities.imageGeneration ? ["Data Processing & Tabular Synthesis"] : []),
+    ]);
+
+    setTestMessages([
+      {
+        role: "assistant",
+        content: `Hello! I am **${blueprint.name}** (${blueprint.role}). How can I assist your workflow today?`
+      }
+    ]);
+
+    toast.success(`Loaded "${blueprint.name}" blueprint! Click Save Agent to persist.`);
   };
 
   const handleSave = () => {
     if (!name.trim()) {
-      toast.error("Agent name cannot be empty");
+      toast.error("Agent name is required");
       return;
     }
     const updated = agents.map((a) =>
@@ -175,81 +199,109 @@ const CustomAgent = () => {
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (agents.length <= 1) {
-      toast.error("You must keep at least one custom agent.");
+      toast.error("You must have at least one agent");
       return;
     }
     const updated = agents.filter((a) => a.id !== id);
     setAgents(updated);
     saveAgents(updated);
-    if (selectedAgentId === id) {
-      setSelectedAgentId(updated[0].id);
-    }
+    setSelectedAgentId(updated[0]?.id || "");
     toast.success("Agent removed");
   };
 
-  const toggleCapability = (cap: string) => {
-    setCapabilities((prev) =>
-      prev.includes(cap) ? prev.filter((c) => c !== cap) : [...prev, cap]
-    );
+  const toggleCapability = (label: string) => {
+    if (capabilities.includes(label)) {
+      setCapabilities(capabilities.filter((c) => c !== label));
+    } else {
+      setCapabilities([...capabilities, label]);
+    }
   };
 
   const handleAutoGenerate = async () => {
-    if (!aiBuilderPrompt.trim()) {
-      toast.info("Describe the type of agent you want to create (e.g. Healthcare Dietitian, Rust Security Auditor)");
-      return;
-    }
-
+    if (!aiBuilderPrompt.trim() || isAutoGenerating) return;
     setIsAutoGenerating(true);
-    toast.info("Synthesizing custom agent persona...");
 
-    const prompt = `Create a custom AI Agent profile for: "${aiBuilderPrompt}".
-Return a clean JSON object with this exact structure:
+    const prompt = `Generate a specialized AI agent configuration based on this concept: "${aiBuilderPrompt}".
+Respond ONLY with a JSON object:
 {
-  "name": "Agent Name",
+  "name": "Catchy Agent Name",
   "role": "Agent Title/Role",
-  "systemPrompt": "Comprehensive multi-paragraph persona and instructions",
-  "capabilities": ["Code Generation", "Web Search", "Data Processing"],
-  "avatarEmoji": "⚡"
+  "systemPrompt": "Comprehensive 3-sentence persona instruction",
+  "emoji": "One suitable emoji"
 }`;
 
-    let buffer = "";
+    let accumulated = "";
+
     try {
       await streamChat({
         messages: [{ role: "user", content: prompt }],
         model: "google/gemini-3-flash-preview",
-        onDelta: (chunk) => { buffer += chunk; },
+        systemPrompt: "You are an AI Agent Architect. Respond only in valid JSON.",
+        onDelta: (chunk) => { accumulated += chunk; },
         onDone: () => {
           setIsAutoGenerating(false);
           try {
-            const jsonMatch = buffer.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              if (parsed.name) setName(parsed.name);
-              if (parsed.role) setRole(parsed.role);
-              if (parsed.systemPrompt) setSystemPrompt(parsed.systemPrompt);
-              if (parsed.avatarEmoji) setAvatarEmoji(parsed.avatarEmoji);
-              if (Array.isArray(parsed.capabilities)) setCapabilities(parsed.capabilities);
-              toast.success(`Agent "${parsed.name}" generated! Click 'Save Agent' to store.`);
-            } else {
-              setName(aiBuilderPrompt.slice(0, 24));
-              setRole("Specialist Consultant");
-              setSystemPrompt(`You are an expert specialist dedicated to ${aiBuilderPrompt}. Deliver thorough and actionable solutions.`);
-              toast.success("Agent profile generated!");
-            }
+            const cleaned = accumulated.replace(/```json/g, "").replace(/```/g, "").trim();
+            const parsed = JSON.parse(cleaned);
+            if (parsed.name) setName(parsed.name);
+            if (parsed.role) setRole(parsed.role);
+            if (parsed.systemPrompt) setSystemPrompt(parsed.systemPrompt);
+            if (parsed.emoji) setAvatarEmoji(parsed.emoji);
+            toast.success("Agent profile auto-generated!");
           } catch {
-            setName(aiBuilderPrompt.slice(0, 24));
+            setName(aiBuilderPrompt);
             setRole("Specialist Consultant");
-            setSystemPrompt(`You are an expert specialist dedicated to ${aiBuilderPrompt}. Deliver thorough and actionable solutions.`);
-            toast.success("Agent profile generated!");
+            setSystemPrompt(`You are an expert AI persona specializing in ${aiBuilderPrompt}.`);
+            toast.success("Agent drafted.");
           }
         }
       });
-    } catch {
+    } catch (e: any) {
       setIsAutoGenerating(false);
-      setName(aiBuilderPrompt.slice(0, 24));
+      setName(aiBuilderPrompt);
       setRole("Autonomous Specialist");
-      setSystemPrompt(`You are an expert specialist dedicated to ${aiBuilderPrompt}.`);
-      toast.success("Agent generated!");
+      toast.success("Agent drafted.");
+    }
+  };
+
+  const handleSendTest = async (overridePrompt?: string) => {
+    const textToSend = overridePrompt || testInput;
+    if (!textToSend.trim() || isStreaming) return;
+    const trimmed = textToSend.trim();
+    if (!overridePrompt) setTestInput("");
+
+    const userMsg: Msg = { role: "user", content: trimmed };
+    setTestMessages((prev) => [...prev, userMsg]);
+    setIsStreaming(true);
+
+    const personaPrompt = `${systemPrompt}
+Always stay in character as "${name}" (${role}).
+Capabilities: ${capabilities.join(", ") || "General Intelligence"}.`;
+
+    let reply = "";
+
+    try {
+      await streamChat({
+        messages: [...testMessages, userMsg],
+        model,
+        systemPrompt: personaPrompt,
+        onDelta: (chunk) => {
+          reply += chunk;
+          setTestMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant" && last !== testMessages[0]) {
+              return [...prev.slice(0, -1), { role: "assistant", content: reply }];
+            }
+            return [...prev, { role: "assistant", content: reply }];
+          });
+        },
+        onDone: () => {
+          setIsStreaming(false);
+        }
+      });
+    } catch (e: any) {
+      setIsStreaming(false);
+      toast.error(e.message || "Failed to get response");
     }
   };
 
@@ -261,14 +313,14 @@ Return a clean JSON object with this exact structure:
     }
 
     setIsListening(true);
-    toast.info("Listening to your voice prompt...");
+    toast.info("Listening... Speak your prompt.");
 
     const controller = startVoiceRecognition({
       onResult: (transcript) => {
         setTestInput(transcript);
       },
       onError: (err) => {
-        toast.error(`Voice error: ${err}`);
+        toast.error(err);
         setIsListening(false);
       },
       onEnd: () => {
@@ -283,70 +335,20 @@ Return a clean JSON object with this exact structure:
     }
   };
 
-  const handleSendTest = async () => {
-    const trimmed = testInput.trim();
-    if (!trimmed || isStreaming) return;
-
-    const userMsg: Msg = { role: "user", content: trimmed };
-    const newMsgs = [...testMessages, userMsg];
-    setTestMessages(newMsgs);
-    setTestInput("");
-    setIsStreaming(true);
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let reply = "";
-
-    const enrichedSystemPrompt = `
-${systemPrompt}
-
-You possess these activated capabilities: ${capabilities.join(", ") || "General reasoning"}.
-Always stay in character as "${name}" (${role}).
-`.trim();
-
-    try {
-      await streamChat({
-        messages: newMsgs.filter((m) => m.content !== testMessages[0]?.content),
-        model,
-        systemPrompt: enrichedSystemPrompt,
-        onDelta: (chunk) => {
-          reply += chunk;
-          setTestMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant" && last !== testMessages[0]) {
-              return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: reply } : m));
-            }
-            return [...prev, { role: "assistant", content: reply }];
-          });
-        },
-        onDone: () => {
-          setIsStreaming(false);
-        },
-        signal: controller.signal,
-      });
-    } catch (e: any) {
-      if (e.name === "AbortError") return;
-      setIsStreaming(false);
-      toast.error(e.message || "Execution error in playground");
-    }
-  };
-
   const handleExportJSON = () => {
-    const agent = agents.find((a) => a.id === selectedAgentId);
-    if (!agent) return;
-    const blob = new Blob([JSON.stringify(agent, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
+    const current = agents.find((a) => a.id === selectedAgentId);
+    if (!current) return;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(current, null, 2));
     const a = document.createElement("a");
-    a.href = url;
-    a.download = `${agent.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}_agent.json`;
+    a.href = dataStr;
+    a.download = `agent_${current.name.toLowerCase().replace(/\s+/g, "_")}.json`;
     a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Agent config exported!");
+    toast.success("Agent profile exported as JSON!");
   };
 
   return (
     <AppLayout>
-      <div className="flex h-[calc(100vh-3.5rem)] flex-col lg:flex-row overflow-hidden bg-background">
+      <div className="flex flex-col lg:flex-row h-[calc(100vh-3.5rem)] overflow-hidden">
         {/* Left Agent Roster Sidebar */}
         <div className="w-full lg:w-72 border-r border-border bg-card/50 p-4 flex flex-col justify-between overflow-y-auto">
           <div className="space-y-4">
@@ -383,6 +385,7 @@ Always stay in character as "${name}" (${role}).
               </Button>
             </div>
 
+            {/* Roster List */}
             <div className="space-y-1.5">
               <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider block mb-1">
                 Your Agents ({agents.length})
@@ -451,84 +454,118 @@ Always stay in character as "${name}" (${role}).
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-foreground">Agent Name</label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Senior Backend Architect"
-                className="h-9 text-xs rounded-xl"
-              />
+          {/* Industry Blueprints Carousel */}
+          <div>
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+              <BookOpen className="h-3.5 w-3.5 text-primary" /> Load Specialized Blueprint
+            </span>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {AGENT_BLUEPRINTS.map((bp) => (
+                <button
+                  key={bp.id}
+                  onClick={() => handleLoadBlueprint(bp)}
+                  className="p-2.5 rounded-xl border border-border bg-card/60 hover:bg-accent/50 text-left transition-all group"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">{bp.avatarEmoji}</span>
+                    <span className="text-xs font-bold text-foreground group-hover:text-primary transition-colors truncate">
+                      {bp.name}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground line-clamp-1">{bp.role}</p>
+                </button>
+              ))}
             </div>
+          </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-foreground">Avatar Emoji</label>
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                {EMOJI_OPTIONS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    onClick={() => setAvatarEmoji(emoji)}
-                    className={`h-8 w-8 rounded-lg text-sm flex items-center justify-center border transition-all ${
-                      avatarEmoji === emoji ? "border-primary bg-primary/10 shadow-sm" : "border-border hover:bg-accent"
-                    }`}
-                  >
-                    {emoji}
-                  </button>
-                ))}
+          {/* Identity Section */}
+          <div className="rounded-2xl border border-border bg-card p-4 space-y-4 shadow-sm">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Persona Identity</h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2 space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">Agent Name</label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Aura Research Partner"
+                  className="h-9 text-xs rounded-xl"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">Avatar Emoji</label>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {EMOJI_OPTIONS.map((em) => (
+                    <button
+                      key={em}
+                      type="button"
+                      onClick={() => setAvatarEmoji(em)}
+                      className={`h-7 w-7 rounded-lg text-sm transition-transform ${
+                        avatarEmoji === em ? "bg-accent scale-110 ring-1 ring-border" : "hover:bg-muted"
+                      }`}
+                    >
+                      {em}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="sm:col-span-2 space-y-1.5">
+            <div className="space-y-1.5">
               <label className="text-xs font-semibold text-foreground">Role & Persona Title</label>
               <Input
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                placeholder="e.g. Senior Staff Distributed Systems Engineer"
+                placeholder="e.g. Lead Distributed Systems Engineer"
                 className="h-9 text-xs rounded-xl"
               />
             </div>
+          </div>
 
-            <div className="sm:col-span-2 space-y-1.5">
-              <label className="text-xs font-semibold text-foreground">Underlying Intelligence Model</label>
-              <ModelSelector value={model} onChange={setModel} />
-            </div>
-
-            <div className="sm:col-span-2 space-y-1.5">
-              <label className="text-xs font-semibold text-foreground">Core System Prompt Instructions</label>
-              <Textarea
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-                rows={5}
-                placeholder="Instruct your agent on behavioral guidelines, output formats, coding conventions..."
-                className="text-xs rounded-xl font-mono leading-relaxed resize-none"
-              />
-            </div>
-
-            <div className="sm:col-span-2 space-y-2">
-              <label className="text-xs font-semibold text-foreground">Activated Capabilities</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {AVAILABLE_CAPABILITIES.map((cap) => {
-                  const active = capabilities.includes(cap.id);
-                  const Icon = cap.icon;
-                  return (
-                    <button
-                      key={cap.id}
-                      onClick={() => toggleCapability(cap.id)}
-                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all ${
-                        active
-                          ? "bg-primary/10 border-primary text-foreground shadow-sm"
-                          : "border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground"
-                      }`}
-                    >
-                      <div className={`p-1.5 rounded-lg ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                        <Icon className="h-3.5 w-3.5" />
-                      </div>
-                      <span className="text-xs font-medium">{cap.label}</span>
-                    </button>
-                  );
-                })}
+          {/* System Prompt & Intelligence */}
+          <div className="rounded-2xl border border-border bg-card p-4 space-y-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">System Instructions</h3>
+              <div className="w-48">
+                <ModelSelector value={model} onChange={setModel} disabled={isStreaming} />
               </div>
+            </div>
+
+            <Textarea
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+              placeholder="You are an autonomous AI specialist..."
+              rows={5}
+              className="text-xs font-mono rounded-xl resize-none leading-relaxed"
+            />
+          </div>
+
+          {/* Tool Capabilities Matrix */}
+          <div className="rounded-2xl border border-border bg-card p-4 space-y-3 shadow-sm">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Enabled Tool Capabilities</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {AVAILABLE_CAPABILITIES.map((cap) => {
+                const Icon = cap.icon;
+                const active = capabilities.includes(cap.label);
+                return (
+                  <button
+                    key={cap.id}
+                    type="button"
+                    onClick={() => toggleCapability(cap.label)}
+                    className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${
+                      active
+                        ? "bg-primary/10 border-primary text-foreground shadow-sm"
+                        : "border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground"
+                    }`}
+                  >
+                    <div className={`p-1.5 rounded-lg ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-xs font-medium">{cap.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -556,6 +593,20 @@ Always stay in character as "${name}" (${role}).
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </Button>
+          </div>
+
+          {/* Starter Questions Chips */}
+          <div className="px-3 py-2 border-b border-border/50 bg-muted/20 flex items-center gap-1.5 overflow-x-auto">
+            <span className="text-[9px] font-bold uppercase text-muted-foreground flex-shrink-0">Starter Prompts:</span>
+            {["Evaluate my pitch deck", "Review architecture", "Write a summary"].map((q, i) => (
+              <button
+                key={i}
+                onClick={() => handleSendTest(q)}
+                className="px-2 py-0.5 rounded-full border border-border bg-background text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent transition-all flex-shrink-0"
+              >
+                {q}
+              </button>
+            ))}
           </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -611,7 +662,7 @@ Always stay in character as "${name}" (${role}).
               </button>
               <Button
                 size="icon"
-                onClick={handleSendTest}
+                onClick={() => handleSendTest()}
                 disabled={!testInput.trim() || isStreaming}
                 className="h-8 w-8 rounded-xl flex-shrink-0"
               >
