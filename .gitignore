@@ -42,3 +42,4 @@ backend/.env
 test-results/
 playwright-report/
 .playwright-artifacts-*/
+.vercel
