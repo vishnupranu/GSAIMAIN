@@ -1,6 +1,7 @@
 import { ReactNode, useState } from "react";
 import AppSidebar from "./AppSidebar";
 import AppHeader from "./AppHeader";
+import CommandPalette from "./CommandPalette";
 import { Menu, X } from "lucide-react";
 
 interface AppLayoutProps {
@@ -34,6 +35,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
         <AppHeader />
         <main className="flex-1">{children}</main>
       </div>
+      <CommandPalette />
     </div>
   );
 };

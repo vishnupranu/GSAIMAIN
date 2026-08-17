@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Presentation, Sparkles, ChevronLeft, ChevronRight, Maximize2,
   Minimize2, Download, Copy, Check, Layout, Palette, Play,
-  ListOrdered, RefreshCw, FileText, Mic, MicOff, Plus, Trash2
+  ListOrdered, RefreshCw, FileText, Mic, MicOff, Plus, Trash2, Printer, Columns, Grid, Quote
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,12 +14,15 @@ import AppLayout from "@/components/AppLayout";
 import ModelSelector, { type ModelId } from "@/components/ModelSelector";
 import { streamChat, startVoiceRecognition } from "@/lib/api";
 
+type SlideLayout = "standard" | "split" | "grid" | "quote";
+
 interface Slide {
   title: string;
   subtitle?: string;
   points: string[];
   callout?: string;
   speakerNotes?: string;
+  layout?: SlideLayout;
 }
 
 const THEMES = [
@@ -54,7 +57,8 @@ const SlidesGen = () => {
         "Includes speaker notes, visual key takeaways, and one-click exports"
       ],
       callout: "Enter any topic or select a template above to generate your deck.",
-      speakerNotes: "Welcome everyone. Today we are exploring automated AI presentation generation."
+      speakerNotes: "Welcome everyone. Today we are exploring automated AI presentation generation.",
+      layout: "standard"
     }
   ]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
@@ -94,7 +98,8 @@ Each slide object MUST have this schema:
     "subtitle": "Optional descriptive context or key takeaway",
     "points": ["Clear bullet point 1", "High-impact point 2", "Data or architectural detail 3"],
     "callout": "Optional highlighted quote or executive metric",
-    "speakerNotes": "Brief speaking points for the presenter"
+    "speakerNotes": "Brief speaking points for the presenter",
+    "layout": "standard"
   }
 ]`;
 
@@ -114,31 +119,34 @@ Each slide object MUST have this schema:
             const cleaned = accumulated.replace(/```json/g, "").replace(/```/g, "").trim();
             const parsed = JSON.parse(cleaned);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              setSlides(parsed);
-              toast.success(`Generated ${parsed.length} slides!`);
+              setSlides(parsed.map((s, i) => ({
+                ...s,
+                layout: i % 4 === 1 ? "split" : i % 4 === 2 ? "grid" : i % 4 === 3 ? "quote" : "standard"
+              })));
+              toast.success(`Deck generated with ${parsed.length} slides!`);
               return;
             }
           } catch {}
 
-          // Resilient fallback parser
-          const lines = accumulated.split("\n").filter((l) => l.trim().length > 3);
-          setSlides([
-            {
-              title: targetTopic,
-              subtitle: "Executive Overview & Architecture",
-              points: lines.slice(0, 4),
-              callout: "GUIDESOFT Autonomous Intelligence",
-              speakerNotes: "Key points summarized above."
-            },
-            {
-              title: "Strategic Execution Plan",
-              subtitle: "Roadmap & Key Metrics",
-              points: lines.slice(4, 8).length > 0 ? lines.slice(4, 8) : ["Milestone tracking", "Unit economics", "Team ownership"],
-              callout: "Target Delivery: Q3",
-              speakerNotes: "Review execution milestones."
+          // Fallback parser
+          const lines = accumulated.split("\n").filter((l) => l.trim().startsWith("#") || l.trim().startsWith("-"));
+          if (lines.length > 0) {
+            const fallbackSlides: Slide[] = [];
+            let cur: Slide = { title: targetTopic, points: [] };
+            for (const line of lines) {
+              if (line.startsWith("#")) {
+                if (cur.points.length > 0) fallbackSlides.push(cur);
+                cur = { title: line.replace(/^#+\s*/, ""), points: [] };
+              } else if (line.startsWith("-")) {
+                cur.points.push(line.replace(/^-\s*/, ""));
+              }
             }
-          ]);
-          toast.success("Presentation created!");
+            if (cur.points.length > 0) fallbackSlides.push(cur);
+            if (fallbackSlides.length > 0) {
+              setSlides(fallbackSlides);
+              toast.success("Deck compiled.");
+            }
+          }
         },
       });
     } catch (e: any) {
@@ -164,14 +172,14 @@ Each slide object MUST have this schema:
     }
 
     setIsListening(true);
-    toast.info("Listening... Speak your presentation topic.");
+    toast.info("Listening... Speak your slide deck topic.");
 
     const controller = startVoiceRecognition({
       onResult: (transcript) => {
         setTopic(transcript);
       },
       onError: (err) => {
-        toast.error(`Voice error: ${err}`);
+        toast.error(err);
         setIsListening(false);
       },
       onEnd: () => {
@@ -192,7 +200,8 @@ Each slide object MUST have this schema:
       subtitle: "Add descriptive details",
       points: ["Action item or architectural point 1", "Measurement metric 2", "Expected outcome 3"],
       callout: "Executive Highlight",
-      speakerNotes: "Speaker notes for this slide."
+      speakerNotes: "Speaker notes for this slide.",
+      layout: "standard"
     };
     setSlides([...slides, newSlide]);
     setCurrentSlideIndex(slides.length);
@@ -209,6 +218,13 @@ Each slide object MUST have this schema:
     setSlides(updated);
     setCurrentSlideIndex(Math.max(0, index - 1));
     toast.success("Slide deleted");
+  };
+
+  const handleSetLayout = (layout: SlideLayout) => {
+    const updated = [...slides];
+    updated[currentSlideIndex] = { ...updated[currentSlideIndex], layout };
+    setSlides(updated);
+    toast.info(`Slide layout switched to ${layout.toUpperCase()}`);
   };
 
   const handleCopy = () => {
@@ -240,6 +256,10 @@ Each slide object MUST have this schema:
     ul { font-size: 18px; line-height: 1.8; color: #cbd5e1; }
     .callout { background: rgba(56, 189, 248, 0.1); border-left: 4px solid #38bdf8; padding: 16px; border-radius: 8px; margin-top: 24px; font-weight: 500; }
     .notes { margin-top: 32px; font-size: 14px; color: #64748b; border-top: 1px dashed #334155; padding-top: 16px; }
+    @media print {
+      body { background: white; color: black; padding: 0; }
+      .slide { page-break-after: always; max-width: 100%; border: none; box-shadow: none; padding: 20px; }
+    }
   </style>
 </head>
 <body>
@@ -259,22 +279,27 @@ Each slide object MUST have this schema:
 </body>
 </html>`;
 
-    const blob = new Blob([htmlContent], { type: "text/html" });
+    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${(topic || "presentation").replace(/[^a-zA-Z0-9]/g, "_")}.html`;
+    a.download = `guidesoft_presentation_${Date.now()}.html`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Presentation exported as HTML!");
+    toast.success("Standalone HTML Presentation downloaded!");
+  };
+
+  const handlePrintPDF = () => {
+    window.print();
   };
 
   const currentSlide = slides[currentSlideIndex] || slides[0];
+  const currentLayout = currentSlide.layout || "standard";
 
   return (
     <AppLayout>
       <div className={`flex flex-col overflow-hidden ${isFullscreen ? "fixed inset-0 z-50 bg-background" : "h-[calc(100vh-3.5rem)]"}`}>
-        {/* Top Control Bar */}
+        {/* Top Header */}
         <div className="border-b border-border bg-card p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -283,13 +308,14 @@ Each slide object MUST have this schema:
               </div>
               <div>
                 <h1 className="text-base font-bold text-foreground font-heading">AI Slide Deck Studio</h1>
-                <p className="text-[11px] text-muted-foreground">Autonomous presentation generation with themes, speaker notes, and presenter mode</p>
+                <p className="text-[11px] text-muted-foreground">Synthesize multi-slide pitch decks, keynote presentations, and export to HTML or PDF</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <Select value={theme} onValueChange={setTheme}>
                 <SelectTrigger className="h-8 w-36 text-xs rounded-xl">
+                  <Palette className="h-3.5 w-3.5 mr-1" />
                   <SelectValue placeholder="Theme" />
                 </SelectTrigger>
                 <SelectContent>
@@ -301,20 +327,63 @@ Each slide object MUST have this schema:
                 </SelectContent>
               </Select>
 
+              {/* Layout Switcher */}
+              <div className="hidden sm:flex items-center gap-1 bg-muted p-0.5 rounded-xl border border-border">
+                <Button
+                  size="sm"
+                  variant={currentLayout === "standard" ? "default" : "ghost"}
+                  onClick={() => handleSetLayout("standard")}
+                  className="h-7 px-2 text-xs rounded-lg"
+                  title="Standard Layout"
+                >
+                  <ListOrdered className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant={currentLayout === "split" ? "default" : "ghost"}
+                  onClick={() => handleSetLayout("split")}
+                  className="h-7 px-2 text-xs rounded-lg"
+                  title="2-Column Split"
+                >
+                  <Columns className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant={currentLayout === "grid" ? "default" : "ghost"}
+                  onClick={() => handleSetLayout("grid")}
+                  className="h-7 px-2 text-xs rounded-lg"
+                  title="3-Metric Grid"
+                >
+                  <Grid className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant={currentLayout === "quote" ? "default" : "ghost"}
+                  onClick={() => handleSetLayout("quote")}
+                  className="h-7 px-2 text-xs rounded-lg"
+                  title="Quote Spotlight"
+                >
+                  <Quote className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+
               <Button variant="outline" size="sm" onClick={handleCopy} className="h-8 gap-1.5 text-xs rounded-xl">
                 {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />} Copy Deck
               </Button>
               <Button variant="outline" size="sm" onClick={handleDownloadHTML} className="h-8 gap-1.5 text-xs rounded-xl">
                 <Download className="h-3.5 w-3.5" /> Export HTML
               </Button>
+              <Button variant="outline" size="sm" onClick={handlePrintPDF} className="h-8 gap-1.5 text-xs rounded-xl">
+                <Printer className="h-3.5 w-3.5" /> Print / PDF
+              </Button>
               <Button
-                variant="outline"
-                size="sm"
+                variant="ghost"
+                size="icon"
                 onClick={() => setIsFullscreen(!isFullscreen)}
-                className="h-8 gap-1.5 text-xs rounded-xl"
+                className="h-8 w-8 rounded-xl"
+                title={isFullscreen ? "Exit Fullscreen" : "Presenter Mode"}
               >
-                {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-                {isFullscreen ? "Exit" : "Present"}
+                {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
               </Button>
             </div>
           </div>
@@ -325,7 +394,7 @@ Each slide object MUST have this schema:
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleGenerate(); }}
-                placeholder="Enter presentation topic or thesis..."
+                placeholder="Enter presentation topic or pitch narrative..."
                 className="h-9 text-xs pr-9 rounded-xl"
               />
               <button
@@ -427,10 +496,10 @@ Each slide object MUST have this schema:
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.25 }}
-                className={`w-full rounded-2xl border p-8 sm:p-12 shadow-xl ${activeTheme.bg} min-h-[380px] flex flex-col justify-between`}
+                className={`w-full rounded-2xl border p-8 sm:p-12 shadow-xl ${activeTheme.bg} min-h-[400px] flex flex-col justify-between`}
               >
                 <div>
-                  <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-2">
+                  <div className="text-xs font-mono uppercase tracking-widest opacity-60 mb-2">
                     Slide {currentSlideIndex + 1} of {slides.length}
                   </div>
                   <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1 font-heading">{currentSlide.title}</h2>
@@ -438,52 +507,108 @@ Each slide object MUST have this schema:
                     <p className="text-sm opacity-80 mb-6">{currentSlide.subtitle}</p>
                   )}
 
-                  <ul className="space-y-3 text-sm sm:text-base leading-relaxed opacity-90 my-4">
-                    {currentSlide.points.map((pt, i) => (
-                      <li key={i} className="flex items-start gap-2.5">
-                        <span className="h-1.5 w-1.5 rounded-full bg-current mt-2 flex-shrink-0" />
-                        <span>{pt}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  {/* Dynamic Layouts */}
+                  {currentLayout === "split" ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-6">
+                      <div className="rounded-xl border border-current/20 p-4 bg-black/10">
+                        <h4 className="text-xs uppercase tracking-wider font-bold mb-2 opacity-80">Key Pillars</h4>
+                        <ul className="space-y-2 text-sm leading-relaxed opacity-90">
+                          {currentSlide.points.slice(0, 2).map((pt, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-current mt-2 flex-shrink-0" />
+                              <span>{pt}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="rounded-xl border border-current/20 p-4 bg-black/10">
+                        <h4 className="text-xs uppercase tracking-wider font-bold mb-2 opacity-80">Strategic Impacts</h4>
+                        <ul className="space-y-2 text-sm leading-relaxed opacity-90">
+                          {currentSlide.points.slice(2).map((pt, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-current mt-2 flex-shrink-0" />
+                              <span>{pt}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ) : currentLayout === "grid" ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-6">
+                      {currentSlide.points.map((pt, i) => (
+                        <div key={i} className="rounded-xl border border-current/20 p-4 bg-black/10 text-center">
+                          <span className="text-2xl font-bold font-mono block mb-1">0{i + 1}</span>
+                          <span className="text-xs font-medium leading-snug">{pt}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : currentLayout === "quote" ? (
+                    <div className="my-8 text-center px-4">
+                      <p className="text-xl sm:text-2xl font-serif italic mb-3 opacity-95">
+                        "{currentSlide.callout || currentSlide.points[0]}"
+                      </p>
+                      <span className="text-xs uppercase tracking-widest font-mono opacity-70">— Key Strategic Principle</span>
+                    </div>
+                  ) : (
+                    <ul className="space-y-3 text-sm sm:text-base leading-relaxed opacity-90 my-4">
+                      {currentSlide.points.map((pt, i) => (
+                        <li key={i} className="flex items-start gap-2.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-current mt-2 flex-shrink-0" />
+                          <span>{pt}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
 
-                  {currentSlide.callout && (
-                    <div className="mt-6 rounded-xl border border-current/20 bg-current/5 p-4 text-xs sm:text-sm font-medium">
+                  {currentSlide.callout && currentLayout !== "quote" && (
+                    <div className="mt-6 rounded-xl border border-current/20 p-3.5 bg-black/10 text-xs sm:text-sm font-medium">
                       💡 {currentSlide.callout}
                     </div>
                   )}
                 </div>
 
+                {/* Speaker Notes */}
                 {currentSlide.speakerNotes && (
-                  <div className="mt-8 pt-4 border-t border-current/10 text-xs opacity-60 font-mono">
-                    🗣️ Speaker Notes: {currentSlide.speakerNotes}
+                  <div className="mt-6 pt-4 border-t border-current/10 text-xs opacity-70 flex items-center gap-2">
+                    <FileText className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span className="truncate">Notes: {currentSlide.speakerNotes}</span>
                   </div>
                 )}
               </motion.div>
             </div>
 
-            {/* Bottom Slide Controller */}
-            <div className="mt-4 flex items-center gap-4 bg-card border border-border px-4 py-2 rounded-2xl shadow-sm">
+            {/* Bottom Presenter Controls */}
+            <div className="mt-6 flex items-center justify-between w-full max-w-4xl">
               <Button
-                variant="ghost"
-                size="icon"
-                disabled={currentSlideIndex === 0}
+                variant="outline"
+                size="sm"
                 onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))}
-                className="h-8 w-8 rounded-xl"
+                disabled={currentSlideIndex === 0}
+                className="h-8 gap-1 text-xs rounded-xl"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-3.5 w-3.5" /> Previous
               </Button>
-              <span className="text-xs font-mono font-medium text-foreground">
-                {currentSlideIndex + 1} / {slides.length}
-              </span>
+
+              <div className="flex items-center gap-1.5">
+                {slides.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setCurrentSlideIndex(idx)}
+                    className={`h-2 rounded-full transition-all ${
+                      currentSlideIndex === idx ? "w-6 bg-primary" : "w-2 bg-border hover:bg-muted-foreground"
+                    }`}
+                  />
+                ))}
+              </div>
+
               <Button
-                variant="ghost"
-                size="icon"
-                disabled={currentSlideIndex === slides.length - 1}
+                variant="outline"
+                size="sm"
                 onClick={() => setCurrentSlideIndex((prev) => Math.min(slides.length - 1, prev + 1))}
-                className="h-8 w-8 rounded-xl"
+                disabled={currentSlideIndex === slides.length - 1}
+                className="h-8 gap-1 text-xs rounded-xl"
               >
-                <ChevronRight className="h-4 w-4" />
+                Next <ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
