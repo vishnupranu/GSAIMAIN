@@ -16,9 +16,9 @@ test.describe("Payment Gateway: GPay, UPI QR, Cards & Webhooks", () => {
     await page.locator("button:has-text('Google Pay')").click();
     await expect(page.getByRole("heading", { name: "Pay with Google Pay" })).toBeVisible();
 
-    // 2. Test UPI Tab
+    // 2. Test UPI Tab with confidential masked ID
     await page.locator("button:has-text('UPI & QR')").click();
-    await expect(page.getByText("guidesoft@upi")).toBeVisible();
+    await expect(page.locator("text=8884•••••-4@ybl")).toBeVisible();
 
     // 3. Test Cards Tab
     await page.locator("button:has-text('Cards')").click();

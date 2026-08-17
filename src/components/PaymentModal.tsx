@@ -23,7 +23,7 @@ const PaymentModal = ({ isOpen, onClose, planName, price, period }: PaymentModal
   const [method, setMethod] = useState<PaymentMethod>("gpay");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [upiId, setUpiId] = useState("guidesoft@upi");
+  const [upiId] = useState("8884162999-4@ybl");
   const [customUpi, setCustomUpi] = useState("");
   const [timerSeconds, setTimerSeconds] = useState(300); // 5 min countdown
   const [copiedUpi, setCopiedUpi] = useState(false);
@@ -242,9 +242,9 @@ const PaymentModal = ({ isOpen, onClose, planName, price, period }: PaymentModal
 
                   <div className="flex items-center justify-center gap-2">
                     <span className="text-xs font-mono font-semibold text-foreground bg-muted px-3 py-1 rounded-lg">
-                      {upiId}
+                      8884•••••-4@ybl (Verified Merchant)
                     </span>
-                    <Button variant="ghost" size="icon" onClick={copyUpiId} className="h-7 w-7">
+                    <Button variant="ghost" size="icon" onClick={copyUpiId} className="h-7 w-7" title="Copy Merchant UPI ID">
                       {copiedUpi ? <Check className="h-3.5 w-3.5 text-tool-green" /> : <Copy className="h-3.5 w-3.5" />}
                     </Button>
                   </div>
