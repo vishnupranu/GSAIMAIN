@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Music, Sparkles, Play, Pause, Download, Copy,
-  Check, Volume2, Radio, Disc, RefreshCw, Sliders
+  Check, Volume2, Radio, Disc, RefreshCw, Sliders, Mic, MicOff
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import ModelSelector, { type ModelId } from "@/components/ModelSelector";
-import { streamChat } from "@/lib/api";
+import { streamChat, startVoiceRecognition } from "@/lib/api";
 
 const GENRES = [
   { id: "synthwave", label: "80s Retro Synthwave", defaultBpm: 120 },
@@ -35,6 +35,13 @@ const CHORD_FREQS: Record<string, number[]> = {
   A: [440.0, 554.37, 659.25],
   E: [329.63, 415.3, 493.88],
 };
+
+const PRESETS = [
+  { label: "⚡ Neon Cyberpunk", prompt: "High-energy synthwave anthem about racing through a neon metropolis at midnight", genre: "synthwave", bpm: 124 },
+  { label: "☕ Lo-Fi Chill", prompt: "Relaxing lo-fi study beat with gentle rain outside the coffee shop window", genre: "lofi", bpm: 85 },
+  { label: "🎹 Ambient Piano", prompt: "Peaceful cinematic ambient piano track reflecting under starry midnight skies", genre: "ambient", bpm: 72 },
+  { label: "✨ Modern Pop", prompt: "Uplifting futuristic electronic pop track celebrating human ingenuity and technology", genre: "pop", bpm: 120 },
+];
 
 const DEFAULT_TRACK = {
   title: "Neon Horizon 2026",
@@ -68,6 +75,7 @@ const MusicGen = () => {
   const [bpm, setBpm] = useState(120);
   const [model, setModel] = useState<ModelId>("google/gemini-3-flash-preview");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [track, setTrack] = useState(DEFAULT_TRACK);
   const [isPlaying, setIsPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -75,6 +83,7 @@ const MusicGen = () => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<number | null>(null);
   const currentChordIdx = useRef(0);
+  const voiceControllerRef = useRef<{ stop: () => void } | null>(null);
 
   // Stop audio on unmount
   useEffect(() => {
@@ -83,19 +92,19 @@ const MusicGen = () => {
     };
   }, []);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim() || isGenerating) return;
+  const generateWithPrompt = async (targetPrompt: string, targetGenre = genre, targetBpm = bpm) => {
+    if (!targetPrompt.trim() || isGenerating) return;
     setIsGenerating(true);
     stopSynthesizer();
 
-    const selectedGenreObj = GENRES.find((g) => g.id === genre);
+    const selectedGenreObj = GENRES.find((g) => g.id === targetGenre);
     const systemPrompt = `You are an expert music producer and lyricist.
 Based on the prompt, generate a track with title, musical key, chord progression (using standard names like Am, C, F, G, Dm, Em), and full structured lyrics with [Verse], [Chorus], [Bridge], [Outro] markers.
 Respond ONLY with a valid JSON object matching this schema:
 {
   "title": "Song Title",
   "genre": "${selectedGenreObj?.label || "Synthwave"}",
-  "bpm": ${bpm},
+  "bpm": ${targetBpm},
   "key": "Am",
   "chords": ["Am", "F", "C", "G"],
   "lyrics": "[Verse 1]\\nLines...\\n\\n[Chorus]\\nLines..."
@@ -105,7 +114,7 @@ Respond ONLY with a valid JSON object matching this schema:
 
     try {
       await streamChat({
-        messages: [{ role: "user", content: `Compose a ${selectedGenreObj?.label} song about: ${prompt}` }],
+        messages: [{ role: "user", content: `Compose a ${selectedGenreObj?.label} song about: ${targetPrompt}` }],
         model,
         systemPrompt,
         onDelta: (chunk) => {
@@ -117,24 +126,56 @@ Respond ONLY with a valid JSON object matching this schema:
             const cleaned = accumulated.replace(/```json/g, "").replace(/```/g, "").trim();
             const parsed = JSON.parse(cleaned);
             if (parsed.title && parsed.lyrics) {
-              setTrack(parsed);
+              setTrack({
+                ...parsed,
+                chords: Array.isArray(parsed.chords) && parsed.chords.length > 0 ? parsed.chords : ["Am", "F", "C", "G"],
+              });
               toast.success(`Track "${parsed.title}" composed!`);
-            } else {
-              throw new Error("Invalid format");
+              return;
             }
-          } catch {
-            setTrack({
-              ...DEFAULT_TRACK,
-              title: prompt,
-              lyrics: accumulated,
-            });
-            toast.info("Lyrics compiled.");
-          }
+          } catch {}
+
+          setTrack({
+            ...DEFAULT_TRACK,
+            title: targetPrompt.slice(0, 30),
+            lyrics: accumulated || DEFAULT_TRACK.lyrics,
+          });
+          toast.success("Lyrics compiled.");
         },
       });
     } catch (e: any) {
       setIsGenerating(false);
       toast.error(e.message || "Failed to generate track");
+    }
+  };
+
+  const toggleVoice = () => {
+    if (isListening) {
+      voiceControllerRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    setIsListening(true);
+    toast.info("Listening... Describe your song style and theme.");
+
+    const controller = startVoiceRecognition({
+      onResult: (transcript) => {
+        setPrompt(transcript);
+      },
+      onError: (err) => {
+        toast.error(`Voice error: ${err}`);
+        setIsListening(false);
+      },
+      onEnd: () => {
+        setIsListening(false);
+      },
+    });
+
+    if (controller) {
+      voiceControllerRef.current = controller;
+    } else {
+      setIsListening(false);
     }
   };
 
@@ -168,7 +209,7 @@ Respond ONLY with a valid JSON object matching this schema:
           // Envelope
           gain.gain.setValueAtTime(0.01, ctx.currentTime);
           gain.gain.exponentialRampToValueAtTime(0.15 / freqs.length, ctx.currentTime + 0.1);
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + chordDuration);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + chordDuration - 0.05);
 
           osc.connect(gain);
           gain.connect(ctx.destination);
@@ -177,14 +218,17 @@ Respond ONLY with a valid JSON object matching this schema:
           osc.stop(ctx.currentTime + chordDuration);
         });
 
-        currentChordIdx.current += 1;
+        currentChordIdx.current = (currentChordIdx.current + 1) % chords.length;
       };
 
+      // Play first chord immediately
       playChord();
-      intervalRef.current = window.setInterval(playChord, chordDuration * 1000);
-      toast.success("Synthesizer playback started!");
+      const intervalId = window.setInterval(playChord, chordDuration * 1000);
+      intervalRef.current = intervalId;
+      toast.success("Playing synthesizer chord progression...");
     } catch {
-      toast.error("Web Audio playback not supported in this browser.");
+      toast.error("Web Audio API not supported on this browser.");
+      setIsPlaying(false);
     }
   };
 
@@ -193,19 +237,31 @@ Respond ONLY with a valid JSON object matching this schema:
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    if (audioCtxRef.current) {
+    if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
     setIsPlaying(false);
   };
 
-  const handleCopy = () => {
-    const text = `Title: ${track.title}\nGenre: ${track.genre}\nBPM: ${track.bpm} | Key: ${track.key}\nChords: ${track.chords.join(" - ")}\n\n${track.lyrics}`;
+  const handleCopyLyrics = () => {
+    const text = `# ${track.title} (${track.genre})\nKey: ${track.key} | BPM: ${track.bpm}\nChords: ${track.chords.join(" - ")}\n\n${track.lyrics}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    toast.success("Track copied to clipboard!");
+    toast.success("Track lyrics copied to clipboard!");
+  };
+
+  const handleDownloadTrack = () => {
+    const text = `# ${track.title} (${track.genre})\nKey: ${track.key} | BPM: ${track.bpm}\nChords: ${track.chords.join(" - ")}\n\n${track.lyrics}`;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `guidesoft_track_${track.title.toLowerCase().replace(/[^a-z0-9]/g, "_")}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Track structure downloaded!");
   };
 
   return (
@@ -219,81 +275,114 @@ Respond ONLY with a valid JSON object matching this schema:
                 <Music className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-base font-bold text-foreground">AI Music & Audio Synthesizer</h1>
-                <p className="text-[11px] text-muted-foreground">Generate lyrics, chord progressions, song structure, and live Web Audio synthesis</p>
+                <h1 className="text-base font-bold text-foreground font-heading">AI Music & Audio Synthesizer</h1>
+                <p className="text-[11px] text-muted-foreground">Generate lyrics, chord progressions, song structures, and synthesize live Web Audio playback</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleCopy} className="h-8 gap-1.5 text-xs">
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy Track
+              <Button
+                variant={isPlaying ? "destructive" : "default"}
+                size="sm"
+                onClick={playSynthesizer}
+                className="h-8 gap-1.5 text-xs rounded-xl shadow-sm"
+              >
+                {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                {isPlaying ? "Stop Synthesizer" : "Play Synth Chords"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleCopyLyrics} className="h-8 gap-1.5 text-xs rounded-xl">
+                {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />} Copy Lyrics
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleDownloadTrack} className="h-8 gap-1.5 text-xs rounded-xl">
+                <Download className="h-3.5 w-3.5" /> Export Track
               </Button>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleGenerate(); }}
-              placeholder="Describe song theme, vibe, or story (e.g. Midnight highway drive, AI waking up)..."
-              className="flex-1 min-w-[280px] h-9 text-xs"
-            />
+            <div className="relative flex-1 min-w-[280px]">
+              <Input
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") generateWithPrompt(prompt); }}
+                placeholder="Describe your track mood, lyrics theme, and tempo (e.g. Cyberpunk Synthwave, Lo-Fi Chillhop)..."
+                className="h-9 text-xs pr-9 rounded-xl"
+              />
+              <button
+                type="button"
+                onClick={toggleVoice}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors ${
+                  isListening ? "text-red-500 animate-pulse" : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Voice Dictation"
+              >
+                {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+              </button>
+            </div>
 
-            <Select value={genre} onValueChange={setGenre}>
-              <SelectTrigger className="w-52 h-9 text-xs">
-                <Radio className="h-3.5 w-3.5 mr-1" />
+            <Select value={genre} onValueChange={(val) => {
+              setGenre(val);
+              const g = GENRES.find((x) => x.id === val);
+              if (g) setBpm(g.defaultBpm);
+            }}>
+              <SelectTrigger className="h-9 w-44 text-xs rounded-xl">
                 <SelectValue placeholder="Genre" />
               </SelectTrigger>
               <SelectContent>
                 {GENRES.map((g) => (
-                  <SelectItem key={g.id} value={g.id} className="text-xs">{g.label}</SelectItem>
+                  <SelectItem key={g.id} value={g.id} className="text-xs">
+                    {g.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
 
             <div className="w-48">
-              <ModelSelector value={model} onChange={setModel} />
+              <ModelSelector value={model} onChange={setModel} disabled={isGenerating} />
             </div>
 
-            <Button onClick={handleGenerate} disabled={!prompt.trim() || isGenerating} className="h-9 gap-1.5 text-xs">
-              {isGenerating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Compose Track
+            <Button
+              onClick={() => generateWithPrompt(prompt)}
+              disabled={!prompt.trim() || isGenerating}
+              className="h-9 gap-1.5 text-xs rounded-xl shadow-sm"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> {isGenerating ? "Composing..." : "Compose Track"}
             </Button>
+          </div>
+
+          {/* Quick interactive presets */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            <span className="text-[10px] text-muted-foreground font-semibold uppercase flex-shrink-0">Starter Tracks:</span>
+            {PRESETS.map((p, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  setPrompt(p.prompt);
+                  setGenre(p.genre);
+                  setBpm(p.bpm);
+                  generateWithPrompt(p.prompt, p.genre, p.bpm);
+                }}
+                className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-all flex-shrink-0"
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Music Studio Canvas */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left: Lyrics & Arrangement */}
-          <div className="flex-1 p-6 overflow-y-auto space-y-4 bg-muted/10">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
-              <div>
-                <h2 className="text-xl font-bold text-foreground">{track.title}</h2>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="rounded-full bg-accent px-2.5 py-0.5 text-[10px] font-semibold text-foreground border border-border">
-                    {track.genre}
-                  </span>
-                  <span className="text-xs text-muted-foreground font-mono">
-                    {track.bpm} BPM • Key: {track.key}
-                  </span>
+        {/* Music Studio Dashboard */}
+        <div className="grid flex-1 grid-cols-1 lg:grid-cols-12 overflow-hidden">
+          {/* Audio Console (5 cols) */}
+          <div className="lg:col-span-5 border-b lg:border-b-0 lg:border-r border-border bg-card/40 p-4 sm:p-6 overflow-y-auto space-y-6">
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Disc className={`h-5 w-5 ${isPlaying ? "text-primary animate-spin" : "text-muted-foreground"}`} />
+                  <h3 className="text-sm font-bold text-foreground font-heading">{track.title}</h3>
                 </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-              <pre className="font-sans text-xs sm:text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                {track.lyrics}
-              </pre>
-            </div>
-          </div>
-
-          {/* Right: Synthesizer & Chord Player */}
-          <div className="w-80 border-l border-border bg-card p-5 flex flex-col justify-between">
-            <div className="space-y-6">
-              <div className="flex items-center gap-2">
-                <Disc className={`h-5 w-5 ${isPlaying ? "animate-spin text-primary" : "text-muted-foreground"}`} />
-                <h3 className="text-sm font-semibold text-foreground">Interactive Synthesizer</h3>
+                <span className="rounded-full bg-accent border border-border px-2.5 py-0.5 text-[11px] font-semibold text-foreground">
+                  {track.genre}
+                </span>
               </div>
 
               {/* Chord Progression Display */}
@@ -301,55 +390,69 @@ Respond ONLY with a valid JSON object matching this schema:
                 <label className="text-xs font-semibold text-muted-foreground mb-2 block uppercase tracking-wider">
                   Chord Progression
                 </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {track.chords?.map((chord, idx) => (
+                <div className="flex items-center gap-2">
+                  {track.chords.map((chord, idx) => (
                     <div
                       key={idx}
-                      className={`h-12 rounded-xl border flex flex-col items-center justify-center font-mono text-sm font-bold transition-all ${
-                        isPlaying && (currentChordIdx.current % track.chords.length) === idx
-                          ? "border-foreground bg-accent text-foreground scale-105 shadow-md"
-                          : "border-border bg-background text-foreground"
+                      className={`flex-1 rounded-xl border p-3 text-center transition-all ${
+                        isPlaying && currentChordIdx.current % track.chords.length === idx
+                          ? "border-primary bg-primary text-primary-foreground font-bold shadow-md scale-105"
+                          : "border-border bg-background text-foreground font-semibold"
                       }`}
                     >
-                      <span>{chord}</span>
+                      <span className="text-sm sm:text-base font-mono">{chord}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Waveform Visualization Bars */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-2 block uppercase tracking-wider">
-                  Harmonic Visualizer
-                </label>
-                <div className="h-16 rounded-xl border border-border bg-background flex items-end justify-center gap-1.5 p-3 overflow-hidden">
-                  {[40, 75, 55, 90, 65, 80, 45, 95, 70, 60, 85, 50].map((height, i) => (
-                    <motion.div
-                      key={i}
-                      animate={{
-                        height: isPlaying ? [`${height * 0.3}%`, `${height}%`, `${height * 0.5}%`] : "15%",
-                      }}
-                      transition={{
-                        repeat: Infinity,
-                        duration: 0.4 + (i % 4) * 0.1,
-                        ease: "easeInOut",
-                      }}
-                      className="w-2 rounded-full bg-foreground"
-                    />
-                  ))}
+              {/* Track Metadata & Tempo Slider */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Tempo (BPM): <strong className="text-foreground">{bpm}</strong></span>
+                  <span className="text-muted-foreground">Key Signature: <strong className="text-foreground">{track.key}</strong></span>
                 </div>
+                <Slider
+                  value={[bpm]}
+                  min={60}
+                  max={180}
+                  step={1}
+                  onValueChange={(val) => setBpm(val[0])}
+                  className="w-full"
+                />
               </div>
             </div>
 
-            {/* Synthesizer Trigger Button */}
-            <div className="pt-4 border-t border-border">
-              <Button
-                onClick={playSynthesizer}
-                className="w-full h-11 gap-2 text-sm font-semibold rounded-xl"
-              >
-                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                {isPlaying ? "Pause Synth Preview" : "Play Synth Chords"}
-              </Button>
+            {/* Synthesizer Waveform Visualizer simulation */}
+            <div className="rounded-2xl border border-border bg-slate-950 p-5 shadow-sm text-center space-y-3">
+              <span className="text-[10px] uppercase font-mono tracking-widest text-emerald-400">
+                {isPlaying ? "SYNTHESIZER OSCILLATOR ACTIVE • 44.1kHz" : "SYNTHESIZER STANDBY"}
+              </span>
+              <div className="flex items-center justify-center gap-1.5 h-16">
+                {[40, 65, 30, 85, 50, 95, 70, 45, 80, 60, 35, 90, 55, 75, 45].map((h, i) => (
+                  <div
+                    key={i}
+                    style={{ height: isPlaying ? `${Math.max(15, (h * (i % 3 + 1)) % 100)}%` : "20%" }}
+                    className={`w-1.5 rounded-full transition-all duration-150 ${
+                      isPlaying ? "bg-emerald-400 shadow-sm shadow-emerald-500/50" : "bg-slate-800"
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Lyrics Viewport (7 cols) */}
+          <div className="lg:col-span-7 flex flex-col p-4 sm:p-6 overflow-y-auto bg-muted/10">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Song Lyrics & Structure</span>
+              <span className="text-xs font-mono text-muted-foreground">{track.lyrics.split("\n").length} lines</span>
+            </div>
+
+            <div className="flex-1 rounded-2xl border border-border bg-card p-6 shadow-sm overflow-y-auto">
+              <pre className="font-sans text-xs sm:text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                {track.lyrics}
+              </pre>
             </div>
           </div>
         </div>

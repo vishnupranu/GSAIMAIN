@@ -6,15 +6,15 @@ test.describe("GUIDESOFT Navigation & 404 Audit", () => {
     "/agents",
     "/chat",
     "/code",
-    "/image",
-    "/custom-agent",
     "/slides",
     "/sheets",
     "/docs",
     "/designer",
+    "/image",
     "/music",
     "/video",
     "/meeting-notes",
+    "/custom-agent",
     "/pricing",
     "/helpcenter",
     "/business",
@@ -49,7 +49,7 @@ test.describe("GUIDESOFT Navigation & 404 Audit", () => {
     ];
 
     for (const label of expectedLabels) {
-      await expect(page.getByRole("button", { name: label })).toBeVisible();
+      await expect(page.locator(`button:has-text("${label}")`)).toBeVisible();
     }
   });
 });

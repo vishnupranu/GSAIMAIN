@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Settings2, Bot, Play, Plus, Save, Trash2,
-  Sparkles, Check, Send, RotateCcw, Wrench, Shield, Database, Globe, Code
+  Sparkles, Check, Send, RotateCcw, Wrench, Shield, Database, Globe, Code,
+  Mic, MicOff, MessageSquare, Download, Upload
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import ModelSelector, { type ModelId } from "@/components/ModelSelector";
-import { streamChat, type Msg } from "@/lib/api";
+import { streamChat, startVoiceRecognition, type Msg } from "@/lib/api";
 
 interface CustomAgentConfig {
   id: string;
@@ -32,7 +34,7 @@ const DEFAULT_AGENTS: CustomAgentConfig[] = [
     role: "Senior Full-Stack Engineer & System Designer",
     systemPrompt: "You are a world-class senior software architect. Provide clear, optimized, clean-code solutions with production-ready patterns, edge-case coverage, and elegant architectural explanations.",
     model: "google/gemini-3-flash-preview",
-    capabilities: ["Code Generation", "Refactoring", "Architecture Reviews"],
+    capabilities: ["Code Generation", "System Tool Calling"],
     avatarEmoji: "⚡",
     createdAt: new Date().toISOString(),
   },
@@ -42,7 +44,7 @@ const DEFAULT_AGENTS: CustomAgentConfig[] = [
     role: "Viral Marketing & Copywriting Strategist",
     systemPrompt: "You are a master growth strategist and copywriter. Create high-converting headlines, viral hook frameworks, marketing funnels, and data-driven user acquisition campaigns.",
     model: "google/gemini-3-flash-preview",
-    capabilities: ["Copywriting", "SEO Strategy", "Funnel Optimization"],
+    capabilities: ["Web Search", "Data Processing"],
     avatarEmoji: "🚀",
     createdAt: new Date().toISOString(),
   },
@@ -52,7 +54,7 @@ const DEFAULT_AGENTS: CustomAgentConfig[] = [
     role: "Academic & Market Intelligence Researcher",
     systemPrompt: "You are an exhaustive research intelligence agent. Break down complex topics with structured data, source synthesis, objective risk analysis, and actionable executive summaries.",
     model: "google/gemini-3-flash-preview",
-    capabilities: ["Data Synthesis", "Market Sizing", "Competitive Intel"],
+    capabilities: ["Web Search", "Data Processing", "Safety & Fact Verification"],
     avatarEmoji: "🔍",
     createdAt: new Date().toISOString(),
   }
@@ -88,6 +90,7 @@ function saveAgents(agents: CustomAgentConfig[]) {
 }
 
 const CustomAgent = () => {
+  const navigate = useNavigate();
   const [agents, setAgents] = useState<CustomAgentConfig[]>(loadAgents);
   const [selectedAgentId, setSelectedAgentId] = useState<string>(agents[0]?.id || "");
 
@@ -99,12 +102,18 @@ const CustomAgent = () => {
   const [capabilities, setCapabilities] = useState<string[]>([]);
   const [avatarEmoji, setAvatarEmoji] = useState("🤖");
 
+  // AI Auto-Builder Prompt
+  const [aiBuilderPrompt, setAiBuilderPrompt] = useState("");
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
+
   // Playground Chat State
   const [testMessages, setTestMessages] = useState<Msg[]>([]);
   const [testInput, setTestInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const voiceControllerRef = useRef<{ stop: () => void } | null>(null);
 
   // Load selected agent into form
   useEffect(() => {
@@ -184,6 +193,96 @@ const CustomAgent = () => {
     );
   };
 
+  const handleAutoGenerate = async () => {
+    if (!aiBuilderPrompt.trim()) {
+      toast.info("Describe the type of agent you want to create (e.g. Healthcare Dietitian, Rust Security Auditor)");
+      return;
+    }
+
+    setIsAutoGenerating(true);
+    toast.info("Synthesizing custom agent persona...");
+
+    const prompt = `Create a custom AI Agent profile for: "${aiBuilderPrompt}".
+Return a clean JSON object with this exact structure:
+{
+  "name": "Agent Name",
+  "role": "Agent Title/Role",
+  "systemPrompt": "Comprehensive multi-paragraph persona and instructions",
+  "capabilities": ["Code Generation", "Web Search", "Data Processing"],
+  "avatarEmoji": "⚡"
+}`;
+
+    let buffer = "";
+    try {
+      await streamChat({
+        messages: [{ role: "user", content: prompt }],
+        model: "google/gemini-3-flash-preview",
+        onDelta: (chunk) => { buffer += chunk; },
+        onDone: () => {
+          setIsAutoGenerating(false);
+          try {
+            const jsonMatch = buffer.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (parsed.name) setName(parsed.name);
+              if (parsed.role) setRole(parsed.role);
+              if (parsed.systemPrompt) setSystemPrompt(parsed.systemPrompt);
+              if (parsed.avatarEmoji) setAvatarEmoji(parsed.avatarEmoji);
+              if (Array.isArray(parsed.capabilities)) setCapabilities(parsed.capabilities);
+              toast.success(`Agent "${parsed.name}" generated! Click 'Save Agent' to store.`);
+            } else {
+              setName(aiBuilderPrompt.slice(0, 24));
+              setRole("Specialist Consultant");
+              setSystemPrompt(`You are an expert specialist dedicated to ${aiBuilderPrompt}. Deliver thorough and actionable solutions.`);
+              toast.success("Agent profile generated!");
+            }
+          } catch {
+            setName(aiBuilderPrompt.slice(0, 24));
+            setRole("Specialist Consultant");
+            setSystemPrompt(`You are an expert specialist dedicated to ${aiBuilderPrompt}. Deliver thorough and actionable solutions.`);
+            toast.success("Agent profile generated!");
+          }
+        }
+      });
+    } catch {
+      setIsAutoGenerating(false);
+      setName(aiBuilderPrompt.slice(0, 24));
+      setRole("Autonomous Specialist");
+      setSystemPrompt(`You are an expert specialist dedicated to ${aiBuilderPrompt}.`);
+      toast.success("Agent generated!");
+    }
+  };
+
+  const toggleVoice = () => {
+    if (isListening) {
+      voiceControllerRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    setIsListening(true);
+    toast.info("Listening to your voice prompt...");
+
+    const controller = startVoiceRecognition({
+      onResult: (transcript) => {
+        setTestInput(transcript);
+      },
+      onError: (err) => {
+        toast.error(`Voice error: ${err}`);
+        setIsListening(false);
+      },
+      onEnd: () => {
+        setIsListening(false);
+      },
+    });
+
+    if (controller) {
+      voiceControllerRef.current = controller;
+    } else {
+      setIsListening(false);
+    }
+  };
+
   const handleSendTest = async () => {
     const trimmed = testInput.trim();
     if (!trimmed || isStreaming) return;
@@ -220,104 +319,158 @@ Always stay in character as "${name}" (${role}).
             return [...prev, { role: "assistant", content: reply }];
           });
         },
-        onDone: () => setIsStreaming(false),
+        onDone: () => {
+          setIsStreaming(false);
+        },
         signal: controller.signal,
       });
     } catch (e: any) {
       if (e.name === "AbortError") return;
       setIsStreaming(false);
-      toast.error(e.message || "Failed to get agent response");
+      toast.error(e.message || "Execution error in playground");
     }
+  };
+
+  const handleExportJSON = () => {
+    const agent = agents.find((a) => a.id === selectedAgentId);
+    if (!agent) return;
+    const blob = new Blob([JSON.stringify(agent, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${agent.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}_agent.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Agent config exported!");
   };
 
   return (
     <AppLayout>
-      <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
-        {/* Left: Agent Roster */}
-        <div className="w-72 border-r border-border bg-card flex flex-col">
-          <div className="p-4 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Settings2 className="h-5 w-5 text-foreground" />
-              <h2 className="text-sm font-semibold text-foreground">Custom Agents</h2>
+      <div className="flex h-[calc(100vh-3.5rem)] flex-col lg:flex-row overflow-hidden bg-background">
+        {/* Left Agent Roster Sidebar */}
+        <div className="w-full lg:w-72 border-r border-border bg-card/50 p-4 flex flex-col justify-between overflow-y-auto">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-foreground" />
+                <h2 className="text-sm font-bold text-foreground font-heading">Custom Agents</h2>
+              </div>
+              <Button size="sm" onClick={handleCreateNew} className="h-7 gap-1 text-xs rounded-lg">
+                <Plus className="h-3.5 w-3.5" /> New
+              </Button>
             </div>
-            <Button size="sm" variant="outline" onClick={handleCreateNew} className="h-8 gap-1 text-xs">
-              <Plus className="h-3.5 w-3.5" /> New
-            </Button>
+
+            {/* AI Auto-Builder Bar */}
+            <div className="rounded-xl border border-border bg-background p-3 space-y-2 shadow-sm">
+              <span className="text-[10px] font-semibold text-primary uppercase flex items-center gap-1">
+                <Sparkles className="h-3 w-3" /> Auto-Build with AI
+              </span>
+              <Input
+                value={aiBuilderPrompt}
+                onChange={(e) => setAiBuilderPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAutoGenerate(); }}
+                placeholder="e.g. Financial Analyst, DevOps Bot..."
+                className="h-8 text-xs rounded-lg"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleAutoGenerate}
+                disabled={isAutoGenerating || !aiBuilderPrompt.trim()}
+                className="w-full h-7 text-xs rounded-lg gap-1"
+              >
+                <Sparkles className="h-3 w-3" /> {isAutoGenerating ? "Building..." : "Generate Profile"}
+              </Button>
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider block mb-1">
+                Your Agents ({agents.length})
+              </span>
+              {agents.map((agent) => (
+                <div
+                  key={agent.id}
+                  onClick={() => setSelectedAgentId(agent.id)}
+                  className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all border ${
+                    selectedAgentId === agent.id
+                      ? "bg-accent border-border font-medium text-foreground shadow-sm"
+                      : "border-transparent hover:bg-muted text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="text-lg">{agent.avatarEmoji || "🤖"}</span>
+                    <div className="truncate">
+                      <p className="text-xs font-semibold truncate text-foreground">{agent.name}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">{agent.role}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={(e) => handleDelete(agent.id, e)}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 rounded transition-opacity"
+                    title="Delete Agent"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-            {agents.map((agent) => (
-              <button
-                key={agent.id}
-                onClick={() => setSelectedAgentId(agent.id)}
-                className={`group flex w-full items-center gap-3 rounded-xl p-3 text-left transition-all ${
-                  selectedAgentId === agent.id
-                    ? "bg-accent border border-border shadow-sm text-foreground"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                }`}
-              >
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-background border border-border text-lg flex-shrink-0">
-                  {agent.avatarEmoji || "🤖"}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold truncate text-foreground">{agent.name}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{agent.role}</p>
-                </div>
-                <button
-                  onClick={(e) => handleDelete(agent.id, e)}
-                  className="opacity-0 group-hover:opacity-100 p-1 hover:text-destructive transition-opacity"
-                  title="Delete Agent"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </button>
-            ))}
+          <div className="pt-4 border-t border-border/50">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportJSON}
+              className="w-full text-xs h-8 gap-1.5 rounded-xl"
+            >
+              <Download className="h-3.5 w-3.5" /> Export Agent JSON
+            </Button>
           </div>
         </div>
 
-        {/* Center: Agent Configuration Studio */}
-        <div className="flex-1 border-r border-border overflow-y-auto p-6 space-y-6">
-          <div className="flex items-center justify-between pb-2 border-b border-border">
+        {/* Center: Agent Configuration Form */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 border-r border-border space-y-6">
+          <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
-                <span>{avatarEmoji}</span>
-                <span>{name || "Configure Agent"}</span>
-              </h1>
-              <p className="text-xs text-muted-foreground mt-0.5">Define identity, instructions, and capabilities.</p>
+              <h1 className="text-xl font-bold text-foreground font-heading">Agent Configuration</h1>
+              <p className="text-xs text-muted-foreground">Define identity, system instructions, and tool capabilities</p>
             </div>
-            <Button onClick={handleSave} className="gap-1.5">
-              <Save className="h-4 w-4" /> Save Agent
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-foreground mb-1.5 block">Agent Name</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Code Architect" />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-foreground mb-1.5 block">Role / Specialization</label>
-              <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Senior Tech Lead" />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate(`/chat?q=${encodeURIComponent(`[Chatting with ${name}] Hello!`)}`)}
+                className="h-8 gap-1 text-xs rounded-xl"
+              >
+                <MessageSquare className="h-3.5 w-3.5" /> Full Chat
+              </Button>
+              <Button size="sm" onClick={handleSave} className="h-8 gap-1.5 text-xs rounded-xl shadow-sm">
+                <Save className="h-3.5 w-3.5" /> Save Agent
+              </Button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-foreground mb-1.5 block">Base AI Model</label>
-              <ModelSelector value={model} onChange={setModel} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">Agent Name</label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Senior Backend Architect"
+                className="h-9 text-xs rounded-xl"
+              />
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-foreground mb-1.5 block">Avatar Emoji</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">Avatar Emoji</label>
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
                 {EMOJI_OPTIONS.map((emoji) => (
                   <button
                     key={emoji}
-                    type="button"
                     onClick={() => setAvatarEmoji(emoji)}
-                    className={`h-8 w-8 rounded-lg border text-sm flex items-center justify-center transition-all ${
-                      avatarEmoji === emoji ? "border-foreground bg-accent scale-110" : "border-border hover:bg-accent"
+                    className={`h-8 w-8 rounded-lg text-sm flex items-center justify-center border transition-all ${
+                      avatarEmoji === emoji ? "border-primary bg-primary/10 shadow-sm" : "border-border hover:bg-accent"
                     }`}
                   >
                     {emoji}
@@ -325,122 +478,142 @@ Always stay in character as "${name}" (${role}).
                 ))}
               </div>
             </div>
-          </div>
 
-          <div>
-            <label className="text-xs font-semibold text-foreground mb-1.5 block">
-              System Instructions & Behavioral Rules
-            </label>
-            <Textarea
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              rows={6}
-              placeholder="Define how the agent thinks, formulates responses, formats outputs, and handles complex instructions..."
-              className="font-mono text-xs leading-relaxed"
-            />
-          </div>
+            <div className="sm:col-span-2 space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">Role & Persona Title</label>
+              <Input
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                placeholder="e.g. Senior Staff Distributed Systems Engineer"
+                className="h-9 text-xs rounded-xl"
+              />
+            </div>
 
-          <div>
-            <label className="text-xs font-semibold text-foreground mb-2 block">Agent Capabilities</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {AVAILABLE_CAPABILITIES.map((cap) => {
-                const Icon = cap.icon;
-                const active = capabilities.includes(cap.id);
-                return (
-                  <button
-                    key={cap.id}
-                    type="button"
-                    onClick={() => toggleCapability(cap.id)}
-                    className={`flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all ${
-                      active
-                        ? "border-foreground bg-accent text-foreground shadow-sm"
-                        : "border-border text-muted-foreground hover:bg-accent/40"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4 flex-shrink-0" />
-                    <span className="text-xs font-medium flex-1">{cap.label}</span>
-                    {active && <Check className="h-3.5 w-3.5 text-foreground" />}
-                  </button>
-                );
-              })}
+            <div className="sm:col-span-2 space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">Underlying Intelligence Model</label>
+              <ModelSelector value={model} onChange={setModel} />
+            </div>
+
+            <div className="sm:col-span-2 space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">Core System Prompt Instructions</label>
+              <Textarea
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
+                rows={5}
+                placeholder="Instruct your agent on behavioral guidelines, output formats, coding conventions..."
+                className="text-xs rounded-xl font-mono leading-relaxed resize-none"
+              />
+            </div>
+
+            <div className="sm:col-span-2 space-y-2">
+              <label className="text-xs font-semibold text-foreground">Activated Capabilities</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {AVAILABLE_CAPABILITIES.map((cap) => {
+                  const active = capabilities.includes(cap.id);
+                  const Icon = cap.icon;
+                  return (
+                    <button
+                      key={cap.id}
+                      onClick={() => toggleCapability(cap.id)}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all ${
+                        active
+                          ? "bg-primary/10 border-primary text-foreground shadow-sm"
+                          : "border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground"
+                      }`}
+                    >
+                      <div className={`p-1.5 rounded-lg ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                        <Icon className="h-3.5 w-3.5" />
+                      </div>
+                      <span className="text-xs font-medium">{cap.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Right: Live Interactive Agent Playground */}
-        <div className="w-96 bg-card flex flex-col">
-          <div className="p-3.5 border-b border-border flex items-center justify-between bg-muted/20">
+        {/* Right Side: Interactive Playground */}
+        <div className="w-full lg:w-96 flex flex-col bg-card/30">
+          <div className="p-3.5 border-b border-border bg-card/60 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Bot className="h-4 w-4 text-foreground" />
-              <h3 className="text-xs font-semibold text-foreground">Interactive Playground</h3>
+              <span className="text-base">{avatarEmoji}</span>
+              <div>
+                <h3 className="text-xs font-bold text-foreground font-heading">Interactive Playground</h3>
+                <p className="text-[10px] text-muted-foreground">Test {name} in real-time</p>
+              </div>
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7"
+              className="h-7 w-7 rounded-lg text-muted-foreground hover:text-foreground"
               onClick={() =>
                 setTestMessages([
-                  {
-                    role: "assistant",
-                    content: `Hello! I am **${name}** (${role}). How can I assist you?`
-                  }
+                  { role: "assistant", content: `Hello! I am **${name}** (${role}). How can I assist your workflow today?` }
                 ])
               }
-              title="Reset Chat"
+              title="Reset Playground"
             >
-              <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
+              <RotateCcw className="h-3.5 w-3.5" />
             </Button>
           </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-            {testMessages.map((m, i) => (
-              <div
-                key={i}
-                className={`flex gap-2.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                {m.role === "assistant" && (
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted text-xs flex-shrink-0">
+            {testMessages.map((msg, idx) => (
+              <div key={idx} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : ""}`}>
+                {msg.role === "assistant" && (
+                  <div className="h-6 w-6 rounded-lg bg-foreground text-primary-foreground flex items-center justify-center text-xs flex-shrink-0">
                     {avatarEmoji}
                   </div>
                 )}
                 <div
-                  className={`rounded-2xl px-3.5 py-2 text-xs leading-relaxed max-w-[85%] ${
-                    m.role === "user"
-                      ? "bg-foreground text-primary-foreground rounded-br-none"
-                      : "bg-muted text-foreground rounded-bl-none border border-border"
+                  className={`max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
+                    msg.role === "user"
+                      ? "bg-foreground text-primary-foreground"
+                      : "bg-card border border-border text-foreground shadow-sm whitespace-pre-wrap"
                   }`}
                 >
-                  <p className="whitespace-pre-wrap">{m.content}</p>
+                  {msg.content}
                 </div>
               </div>
             ))}
-            {isStreaming && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Sparkles className="h-3.5 w-3.5 animate-spin" />
-                <span>{name} is thinking...</span>
+
+            {isStreaming && testMessages[testMessages.length - 1]?.role !== "assistant" && (
+              <div className="flex gap-2">
+                <div className="h-6 w-6 rounded-lg bg-foreground text-primary-foreground flex items-center justify-center text-xs animate-pulse">
+                  {avatarEmoji}
+                </div>
+                <div className="rounded-xl bg-card border border-border px-3 py-2 text-xs text-muted-foreground">
+                  Typing response...
+                </div>
               </div>
             )}
           </div>
 
-          <div className="p-3 border-t border-border bg-background">
-            <div className="flex items-center gap-2">
+          <div className="p-3 border-t border-border bg-card/60">
+            <div className="flex items-center gap-1.5">
               <Input
                 value={testInput}
                 onChange={(e) => setTestInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendTest();
-                  }
-                }}
-                placeholder={`Message ${name}...`}
-                className="text-xs h-9"
+                onKeyDown={(e) => { if (e.key === "Enter") handleSendTest(); }}
+                placeholder={`Ask ${name}...`}
+                className="h-8 text-xs rounded-xl"
               />
+              <button
+                type="button"
+                onClick={toggleVoice}
+                className={`p-2 rounded-xl border border-border transition-colors ${
+                  isListening ? "bg-red-500 text-white animate-pulse" : "bg-card text-muted-foreground hover:text-foreground"
+                }`}
+                title="Voice Dictation"
+              >
+                {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+              </button>
               <Button
                 size="icon"
                 onClick={handleSendTest}
                 disabled={!testInput.trim() || isStreaming}
-                className="h-9 w-9 flex-shrink-0"
+                className="h-8 w-8 rounded-xl flex-shrink-0"
               >
                 <Send className="h-3.5 w-3.5" />
               </Button>

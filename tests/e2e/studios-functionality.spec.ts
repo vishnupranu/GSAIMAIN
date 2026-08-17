@@ -58,7 +58,7 @@ test.describe("GUIDESOFT All 12 Studios Functional Actions", () => {
     await expect(page.getByRole("heading", { name: "AI Video Storyboard Studio" })).toBeVisible();
     await expect(page.getByText("Camera Movement", { exact: true })).toBeVisible();
     await expect(page.getByText("Audio & Sound FX", { exact: true })).toBeVisible();
-    await expect(page.locator("text=Scene #1")).toBeVisible();
+    await expect(page.getByText("Scene #1", { exact: true })).toBeVisible();
   });
 
   test("AI Meeting Notes Studio: transcript input and intelligence report", async ({ page }) => {

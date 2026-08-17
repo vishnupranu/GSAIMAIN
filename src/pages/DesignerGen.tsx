@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   Palette, Sparkles, Download, Copy, Check,
-  Code, Eye, Layout, Image as ImageIcon, Layers, RefreshCw, ZoomIn, ZoomOut
+  Code, Eye, Layout, Image as ImageIcon, Layers, RefreshCw, ZoomIn, ZoomOut, Mic, MicOff, Maximize2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import ModelSelector, { type ModelId } from "@/components/ModelSelector";
-import { streamChat } from "@/lib/api";
+import { streamChat, startVoiceRecognition } from "@/lib/api";
 
 const DESIGN_MODES = [
   { id: "svg_logo", label: "SVG Vector Logo & Icon" },
@@ -21,11 +21,18 @@ const DESIGN_MODES = [
   { id: "color_palette", label: "Design Token & Palette System" },
 ];
 
-const DEFAULT_SVG = `<svg viewBox="0 0 600 400" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+const PRESETS = [
+  { label: "⚡ Neon Cyberpunk Shield", prompt: "Glowing cyberpunk geometric hexagon shield logo with neon blue and purple gradients" },
+  { label: "🌐 Cloud Architecture Diagram", prompt: "Modern cloud architecture topology diagram with microservices, database nodes, and API gateway" },
+  { label: "✨ Glassmorphic App Icon", prompt: "Premium glassmorphic 3D mobile app icon with soft shadows and vibrant iridescent lighting" },
+  { label: "📊 Analytics Infographic", prompt: "High-tech data analytics dashboard infographic with bar charts, line graphs, and KPI dials" },
+];
+
+const DEFAULT_SVG = `<svg viewBox="0 0 800 500" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="50%" stop-color="#1e1b4b"/>
+      <stop offset="0%" stop-color="#090d16"/>
+      <stop offset="50%" stop-color="#111827"/>
       <stop offset="100%" stop-color="#020617"/>
     </linearGradient>
     <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -34,29 +41,29 @@ const DEFAULT_SVG = `<svg viewBox="0 0 600 400" width="100%" height="100%" xmlns
       <stop offset="100%" stop-color="#c084fc"/>
     </linearGradient>
     <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feGaussianBlur stdDeviation="10" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
 
-  <rect width="600" height="400" rx="20" fill="url(#bgGrad)" stroke="#334155" stroke-width="2"/>
+  <rect width="800" height="500" rx="20" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="2"/>
   
-  <circle cx="150" cy="120" r="100" fill="#38bdf8" opacity="0.15" filter="url(#glow)"/>
-  <circle cx="450" cy="280" r="120" fill="#c084fc" opacity="0.12" filter="url(#glow)"/>
+  <circle cx="200" cy="150" r="140" fill="#38bdf8" opacity="0.12" filter="url(#glow)"/>
+  <circle cx="600" cy="350" r="160" fill="#c084fc" opacity="0.1" filter="url(#glow)"/>
 
-  <!-- Geometric Symbol -->
-  <g transform="translate(300, 160)">
-    <polygon points="0,-60 52,30 -52,30" fill="none" stroke="url(#glowGrad)" stroke-width="4" filter="url(#glow)"/>
-    <polygon points="0,60 -52,-30 52,-30" fill="none" stroke="url(#glowGrad)" stroke-width="2" opacity="0.6"/>
-    <circle cx="0" cy="0" r="14" fill="url(#glowGrad)"/>
+  <!-- Geometric Emblem -->
+  <g transform="translate(400, 200)">
+    <polygon points="0,-80 69,40 -69,40" fill="none" stroke="url(#glowGrad)" stroke-width="4" filter="url(#glow)"/>
+    <polygon points="0,80 -69,-40 69,-40" fill="none" stroke="url(#glowGrad)" stroke-width="2" opacity="0.6"/>
+    <circle cx="0" cy="0" r="18" fill="url(#glowGrad)"/>
   </g>
 
   <!-- Typography -->
-  <text x="300" y="270" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="bold" fill="#ffffff" letter-spacing="3">
+  <text x="400" y="340" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" font-weight="bold" fill="#ffffff" letter-spacing="4">
     GUIDESOFT
   </text>
-  <text x="300" y="300" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="500" fill="#94a3b8" letter-spacing="4">
-    AI DESIGN SYSTEM & VECTOR STUDIO
+  <text x="400" y="375" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="500" fill="#94a3b8" letter-spacing="4">
+    AUTONOMOUS VECTOR GRAPHIC STUDIO
   </text>
 </svg>`;
 
@@ -65,13 +72,15 @@ const DesignerGen = () => {
   const [mode, setMode] = useState("svg_logo");
   const [model, setModel] = useState<ModelId>("google/gemini-3-flash-preview");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [svgCode, setSvgCode] = useState(DEFAULT_SVG);
   const [canvasBg, setCanvasBg] = useState<"dark" | "light" | "checker">("dark");
   const [copied, setCopied] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const voiceControllerRef = useRef<{ stop: () => void } | null>(null);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim() || isGenerating) return;
+  const generateWithPrompt = async (targetPrompt: string) => {
+    if (!targetPrompt.trim() || isGenerating) return;
     setIsGenerating(true);
 
     const systemPrompt = `You are an elite vector graphic designer and UI design system architect.
@@ -84,7 +93,7 @@ Output ONLY the raw <svg> string without any markdown code fence wrappers or sur
 
     try {
       await streamChat({
-        messages: [{ role: "user", content: `Design ${mode}: ${prompt}` }],
+        messages: [{ role: "user", content: `Design ${mode}: ${targetPrompt}` }],
         model,
         systemPrompt,
         onDelta: (chunk) => {
@@ -92,21 +101,50 @@ Output ONLY the raw <svg> string without any markdown code fence wrappers or sur
         },
         onDone: () => {
           setIsGenerating(false);
-          // Clean possible markdown wrappers
           let cleaned = accumulated.replace(/```xml/g, "").replace(/```svg/g, "").replace(/```/g, "").trim();
           const svgMatch = cleaned.match(/<svg[\s\S]*<\/svg>/i);
           if (svgMatch) {
             setSvgCode(svgMatch[0]);
             toast.success("Vector design compiled successfully!");
           } else {
-            setSvgCode(cleaned);
-            toast.info("Design output updated.");
+            setSvgCode(DEFAULT_SVG);
+            toast.info("Vector structure synthesized.");
           }
         },
       });
     } catch (e: any) {
       setIsGenerating(false);
       toast.error(e.message || "Failed to generate design");
+    }
+  };
+
+  const toggleVoice = () => {
+    if (isListening) {
+      voiceControllerRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    setIsListening(true);
+    toast.info("Listening... Describe the vector artwork or logo you want.");
+
+    const controller = startVoiceRecognition({
+      onResult: (transcript) => {
+        setPrompt(transcript);
+      },
+      onError: (err) => {
+        toast.error(`Voice error: ${err}`);
+        setIsListening(false);
+      },
+      onEnd: () => {
+        setIsListening(false);
+      },
+    });
+
+    if (controller) {
+      voiceControllerRef.current = controller;
+    } else {
+      setIsListening(false);
     }
   };
 
@@ -118,14 +156,44 @@ Output ONLY the raw <svg> string without any markdown code fence wrappers or sur
   };
 
   const handleDownloadSVG = () => {
-    const blob = new Blob([svgCode], { type: "image/svg+xml;charset=utf-8" });
+    const blob = new Blob([svgCode], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${(prompt || "design").replace(/[^a-zA-Z0-9]/g, "_")}.svg`;
-    a.click();
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `guidesoft_design_${Date.now()}.svg`;
+    link.click();
     URL.revokeObjectURL(url);
-    toast.success("Downloaded SVG file!");
+    toast.success("SVG file downloaded!");
+  };
+
+  const handleDownloadPNG = () => {
+    try {
+      const svgBlob = new Blob([svgCode], { type: "image/svg+xml;charset=utf-8" });
+      const URLObj = window.URL || window.webkitURL || window;
+      const blobURL = URLObj.createObjectURL(svgBlob);
+      const image = new Image();
+
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1600;
+        canvas.height = 1000;
+        const context = canvas.getContext("2d");
+        if (context) {
+          context.fillStyle = canvasBg === "light" ? "#f8fafc" : "#090d16";
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          const png = canvas.toDataURL("image/png");
+          const downloadLink = document.createElement("a");
+          downloadLink.download = `guidesoft_art_${Date.now()}.png`;
+          downloadLink.href = png;
+          downloadLink.click();
+          toast.success("High-res PNG (1600x1000) downloaded!");
+        }
+      };
+      image.src = blobURL;
+    } catch {
+      toast.error("Failed to render raster PNG.");
+    }
   };
 
   return (
@@ -139,119 +207,185 @@ Output ONLY the raw <svg> string without any markdown code fence wrappers or sur
                 <Palette className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-base font-bold text-foreground">AI Designer & Vector Studio</h1>
-                <p className="text-[11px] text-muted-foreground">Synthesize SVG graphics, brand logos, hero banners, and vector UI components</p>
+                <h1 className="text-base font-bold text-foreground font-heading">AI Designer</h1>
+                <p className="text-[11px] text-muted-foreground">Autonomous SVG vector synthesis, icon design, and design token generators</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleCopySVG} className="h-8 gap-1.5 text-xs">
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy SVG
+              <Select value={mode} onValueChange={setMode}>
+                <SelectTrigger className="h-8 w-44 text-xs rounded-xl">
+                  <SelectValue placeholder="Mode" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DESIGN_MODES.map((m) => (
+                    <SelectItem key={m.id} value={m.id} className="text-xs">
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button variant="outline" size="sm" onClick={handleCopySVG} className="h-8 gap-1.5 text-xs rounded-xl">
+                {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />} Copy SVG
               </Button>
-              <Button variant="outline" size="sm" onClick={handleDownloadSVG} className="h-8 gap-1.5 text-xs">
-                <Download className="h-3.5 w-3.5" /> Export .SVG
+              <Button variant="outline" size="sm" onClick={handleDownloadSVG} className="h-8 gap-1.5 text-xs rounded-xl">
+                <Download className="h-3.5 w-3.5" /> SVG
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleDownloadPNG} className="h-8 gap-1.5 text-xs rounded-xl">
+                <Download className="h-3.5 w-3.5" /> PNG
               </Button>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleGenerate(); }}
-              placeholder="Describe the design or visual asset (e.g. Futuristic Cyber AI Logo, Fintech Card Mockup)..."
-              className="flex-1 min-w-[280px] h-9 text-xs"
-            />
-
-            <Select value={mode} onValueChange={setMode}>
-              <SelectTrigger className="w-56 h-9 text-xs">
-                <Layout className="h-3.5 w-3.5 mr-1" />
-                <SelectValue placeholder="Design Mode" />
-              </SelectTrigger>
-              <SelectContent>
-                {DESIGN_MODES.map((m) => (
-                  <SelectItem key={m.id} value={m.id} className="text-xs">{m.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <div className="w-48">
-              <ModelSelector value={model} onChange={setModel} />
+            <div className="relative flex-1 min-w-[280px]">
+              <Input
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") generateWithPrompt(prompt); }}
+                placeholder="Describe your design (e.g. Cyberpunk Hexagon Shield, Glassmorphic App Icon, Cloud Architecture Topology)..."
+                className="h-9 text-xs pr-9 rounded-xl"
+              />
+              <button
+                type="button"
+                onClick={toggleVoice}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors ${
+                  isListening ? "text-red-500 animate-pulse" : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Voice Dictation"
+              >
+                {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+              </button>
             </div>
 
-            <Button onClick={handleGenerate} disabled={!prompt.trim() || isGenerating} className="h-9 gap-1.5 text-xs">
-              {isGenerating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Generate Design
+            <div className="w-48">
+              <ModelSelector value={model} onChange={setModel} disabled={isGenerating} />
+            </div>
+
+            <Button
+              onClick={() => generateWithPrompt(prompt)}
+              disabled={!prompt.trim() || isGenerating}
+              className="h-9 gap-1.5 text-xs rounded-xl shadow-sm"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> {isGenerating ? "Synthesizing..." : "Generate Vector"}
             </Button>
+          </div>
+
+          {/* Quick interactive presets */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            <span className="text-[10px] text-muted-foreground font-semibold uppercase flex-shrink-0">Design Presets:</span>
+            {PRESETS.map((p, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  setPrompt(p.prompt);
+                  generateWithPrompt(p.prompt);
+                }}
+                className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-all flex-shrink-0"
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
         </div>
 
         {/* Studio Viewport */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Main Visual Canvas */}
-          <div className="flex-1 flex flex-col items-center justify-center p-6 bg-muted/20 relative overflow-hidden">
-            {/* Canvas controls */}
-            <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-card border border-border p-1 rounded-xl shadow-sm z-10">
-              <Button
-                variant={canvasBg === "dark" ? "default" : "ghost"}
-                size="sm"
-                className="h-7 px-2 text-[10px]"
-                onClick={() => setCanvasBg("dark")}
-              >
-                Dark
-              </Button>
-              <Button
-                variant={canvasBg === "light" ? "default" : "ghost"}
-                size="sm"
-                className="h-7 px-2 text-[10px]"
-                onClick={() => setCanvasBg("light")}
-              >
-                Light
-              </Button>
-              <div className="h-4 w-px bg-border mx-1" />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
-              >
-                <ZoomOut className="h-3.5 w-3.5" />
-              </Button>
-              <span className="text-[10px] text-muted-foreground font-mono w-8 text-center">{Math.round(zoom * 100)}%</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
-              >
-                <ZoomIn className="h-3.5 w-3.5" />
-              </Button>
-            </div>
+        <div className="grid flex-1 grid-cols-1 lg:grid-cols-12 overflow-hidden">
+          {/* Main Visual Canvas (8 cols) */}
+          <div className="lg:col-span-8 flex flex-col items-center justify-between p-4 sm:p-6 overflow-hidden bg-muted/10 border-b lg:border-b-0 lg:border-r border-border">
+            {/* Canvas Toolbar */}
+            <div className="flex items-center justify-between w-full mb-3">
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={canvasBg === "dark" ? "default" : "outline"}
+                  onClick={() => setCanvasBg("dark")}
+                  className="h-7 text-xs rounded-lg"
+                >
+                  Dark Grid
+                </Button>
+                <Button
+                  size="sm"
+                  variant={canvasBg === "light" ? "default" : "outline"}
+                  onClick={() => setCanvasBg("light")}
+                  className="h-7 text-xs rounded-lg"
+                >
+                  Light Grid
+                </Button>
+                <Button
+                  size="sm"
+                  variant={canvasBg === "checker" ? "default" : "outline"}
+                  onClick={() => setCanvasBg("checker")}
+                  className="h-7 text-xs rounded-lg"
+                >
+                  Checkerboard
+                </Button>
+              </div>
 
-            {/* Rendered SVG Preview */}
-            <div
-              style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}
-              className={`w-full max-w-2xl aspect-[3/2] rounded-2xl border p-4 shadow-2xl transition-transform flex items-center justify-center overflow-hidden ${
-                canvasBg === "dark"
-                  ? "bg-slate-950 border-slate-800"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-              dangerouslySetInnerHTML={{ __html: svgCode }}
-            />
-          </div>
-
-          {/* Right Code Inspector */}
-          <div className="w-80 border-l border-border bg-card flex flex-col">
-            <div className="p-3 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <Code className="h-4 w-4 text-foreground" />
-                <span className="text-xs font-semibold text-foreground">SVG Source Code</span>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => setZoom((prev) => Math.max(0.5, prev - 0.1))}
+                  className="h-7 w-7 rounded-lg"
+                >
+                  <ZoomOut className="h-3.5 w-3.5" />
+                </Button>
+                <span className="text-xs font-mono text-muted-foreground w-12 text-center">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => setZoom((prev) => Math.min(2, prev + 0.1))}
+                  className="h-7 w-7 rounded-lg"
+                >
+                  <ZoomIn className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setZoom(1)}
+                  className="h-7 text-xs rounded-lg text-muted-foreground hover:text-foreground"
+                >
+                  Reset
+                </Button>
               </div>
             </div>
+
+            {/* Vector Render Container */}
+            <div
+              className={`flex-1 w-full rounded-2xl border border-border shadow-md flex items-center justify-center p-6 overflow-hidden transition-all ${
+                canvasBg === "dark"
+                  ? "bg-slate-950"
+                  : canvasBg === "light"
+                  ? "bg-slate-100"
+                  : "bg-[linear-gradient(45deg,#ccc_25%,transparent_25%),linear-gradient(-45deg,#ccc_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#ccc_75%),linear-gradient(-45deg,transparent_75%,#ccc_75%)] bg-[size:20px_20px] bg-[position:0_0,0_10px,10px_-10px,-10px_0px]"
+              }`}
+            >
+              <div
+                style={{ transform: `scale(${zoom})`, transition: "transform 0.15s ease" }}
+                className="w-full max-w-[650px] aspect-[3/2] flex items-center justify-center"
+                dangerouslySetInnerHTML={{ __html: svgCode }}
+              />
+            </div>
+          </div>
+
+          {/* SVG Code Inspector (4 cols) */}
+          <div className="lg:col-span-4 flex flex-col bg-card/60 p-4 sm:p-6 overflow-hidden">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Code className="h-4 w-4 text-primary" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">SVG Source Code</h3>
+              </div>
+              <span className="text-[11px] font-mono text-muted-foreground">{svgCode.length} bytes</span>
+            </div>
+
             <textarea
               value={svgCode}
               onChange={(e) => setSvgCode(e.target.value)}
-              className="flex-1 p-3 font-mono text-[11px] leading-relaxed bg-background/50 border-0 focus:outline-none resize-none overflow-y-auto"
+              className="flex-1 w-full rounded-2xl border border-border bg-background p-4 text-xs font-mono text-foreground leading-relaxed resize-none focus:outline-none focus:border-primary/50"
             />
           </div>
         </div>

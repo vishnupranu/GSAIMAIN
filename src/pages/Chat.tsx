@@ -23,6 +23,7 @@ const Chat = () => {
   const [model, setModel] = useState<ModelId>("google/gemini-3-flash-preview");
   const [conversationId, setConversationId] = useState<string | null>(initialConvId);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentInitial = useRef(false);
@@ -102,10 +103,15 @@ const Chat = () => {
       });
     };
 
+    const systemPrompt = webSearchEnabled
+      ? "You are GUIDESOFT AI with live web search intelligence. Synthesize answers with clear citations, recent facts, and objective analysis."
+      : undefined;
+
     try {
       await streamChat({
         messages: newMessages,
         model,
+        systemPrompt,
         onDelta: upsertAssistant,
         onDone: () => {
           setIsLoading(false);
@@ -134,12 +140,16 @@ const Chat = () => {
     sendMessage(input);
   };
 
-  const suggestions = [
-    "Write a Python script to scrape news headlines",
-    "Explain quantum computing in simple terms",
-    "Create a React component for a todo list",
-    "Help me plan a 7-day trip to Japan",
-  ];
+  const handleRegenerate = () => {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      // Remove last assistant message
+      if (messages[messages.length - 1]?.role === "assistant") {
+        setMessages((prev) => prev.slice(0, -1));
+      }
+      sendMessage(lastUser.content);
+    }
+  };
 
   return (
     <AppLayout>
@@ -156,50 +166,39 @@ const Chat = () => {
 
         {/* Main chat area */}
         <div className="flex flex-1 flex-col">
-          <div className="flex items-center gap-1 px-2 py-1 border-b border-border">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-card/40">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                title={sidebarOpen ? "Collapse sidebar" : "Open sidebar"}
+              >
+                {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+              </Button>
+              <span className="text-xs font-semibold text-foreground">
+                {conversationId ? "Active Conversation" : "New Chat Session"}
+              </span>
+            </div>
+
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
+              variant="outline"
+              size="sm"
+              onClick={handleNewChat}
+              className="h-7 text-xs rounded-lg"
             >
-              {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+              + New Chat
             </Button>
-            <span className="text-xs text-muted-foreground">
-              {conversationId ? "Conversation" : "New Chat"}
-            </span>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto">
-            {messages.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center px-4">
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-foreground">
-                    <Sparkles className="h-8 w-8 text-primary-foreground" />
-                  </div>
-                  <h2 className="text-2xl font-semibold text-foreground">How can I help you today?</h2>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Ask anything — I can write, code, research, and create.
-                  </p>
-                </motion.div>
-                <div className="mt-8 grid w-full max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
-                  {suggestions.map((s, i) => (
-                    <motion.button
-                      key={i}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.1 * i }}
-                      onClick={() => sendMessage(s)}
-                      className="rounded-xl border border-border bg-card p-3 text-left text-sm text-foreground transition-colors hover:bg-accent"
-                    >
-                      {s}
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <ChatMessageList messages={messages} isLoading={isLoading} />
-            )}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto bg-muted/5">
+            <ChatMessageList
+              messages={messages}
+              isLoading={isLoading}
+              onSelectPrompt={(text) => sendMessage(text)}
+              onRegenerate={handleRegenerate}
+            />
           </div>
 
           <ChatInput
@@ -210,6 +209,8 @@ const Chat = () => {
             setModel={setModel}
             onSubmit={handleSubmit}
             onStop={handleStop}
+            webSearchEnabled={webSearchEnabled}
+            onToggleWebSearch={() => setWebSearchEnabled((prev) => !prev)}
           />
         </div>
       </div>

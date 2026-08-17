@@ -254,13 +254,21 @@ const PaymentModal = ({ isOpen, onClose, planName, price, period }: PaymentModal
                     <span className="font-mono font-bold text-foreground">{formatTimer(timerSeconds)}</span>
                   </p>
 
-                  <Button
-                    onClick={handleProcessPayment}
-                    disabled={isProcessing}
-                    className="w-full h-11 rounded-xl font-semibold gap-2"
-                  >
-                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : "I Have Completed UPI Payment"}
-                  </Button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <a
+                      href={`upi://pay?pa=${upiId}&pn=GUIDESOFT%20AI&am=${price.replace(/[^0-9.]/g, '') || '29'}&cu=INR`}
+                      className="inline-flex items-center justify-center h-10 px-3 rounded-xl bg-accent text-foreground text-xs font-semibold hover:bg-accent/80 transition-colors gap-1.5"
+                    >
+                      <Smartphone className="h-3.5 w-3.5" /> Open in UPI App
+                    </a>
+                    <Button
+                      onClick={handleProcessPayment}
+                      disabled={isProcessing}
+                      className="h-10 rounded-xl font-semibold text-xs gap-2"
+                    >
+                      {isProcessing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Verify Payment"}
+                    </Button>
+                  </div>
                 </div>
               )}
 

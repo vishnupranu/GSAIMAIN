@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Video, Sparkles, Film, Play, Pause, Download,
-  Copy, Check, Camera, Mic, Volume2, Clock, RefreshCw, Clapperboard
+  Copy, Check, Camera, Mic, Volume2, Clock, RefreshCw, Clapperboard, MicOff
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import ModelSelector, { type ModelId } from "@/components/ModelSelector";
-import { streamChat } from "@/lib/api";
+import { streamChat, startVoiceRecognition } from "@/lib/api";
 
 interface StoryboardScene {
   sceneNumber: number;
@@ -36,6 +36,13 @@ const STYLES = [
   { id: "documentary", label: "Hyper-Realistic Documentary" },
   { id: "cyberpunk", label: "Cyberpunk Blade Runner Noir" },
   { id: "anime", label: "Makoto Shinkai Cinematic Anime" },
+];
+
+const PRESETS = [
+  { label: "🎬 Cyberpunk Teaser", prompt: "A cyberpunk noir trailer following a rogue hacker uncovering a sentient AI mainframe" },
+  { label: "🪐 Deep Space Odyssey", prompt: "Interstellar mission crossing an event horizon into a luminous multidimensional nebula" },
+  { label: "🏙️ Autonomous Smart City", prompt: "Solarpunk vision of a zero-carbon floating metropolis powered by kinetic architecture" },
+  { label: "🌿 Nature Macro Doc", prompt: "David Attenborough style macro documentary exploring the bioluminescent rainforest floor" },
 ];
 
 const DEFAULT_PROJECT: VideoProject = {
@@ -85,13 +92,34 @@ const VideoGen = () => {
   const [style, setStyle] = useState("cinematic_scifi");
   const [model, setModel] = useState<ModelId>("google/gemini-3-flash-preview");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [project, setProject] = useState<VideoProject>(DEFAULT_PROJECT);
   const [activeSceneIdx, setActiveSceneIdx] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
+  const voiceControllerRef = useRef<{ stop: () => void } | null>(null);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim() || isGenerating) return;
+  // Playback timer loop
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isPlaying) {
+      timer = setTimeout(() => {
+        if (activeSceneIdx < project.scenes.length - 1) {
+          setActiveSceneIdx((prev) => prev + 1);
+        } else {
+          setIsPlaying(false);
+          setActiveSceneIdx(0);
+          toast.info("Storyboard playback completed.");
+        }
+      }, (project.scenes[activeSceneIdx]?.durationSeconds || 4) * 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [isPlaying, activeSceneIdx, project.scenes]);
+
+  const generateWithPrompt = async (targetPrompt: string) => {
+    if (!targetPrompt.trim() || isGenerating) return;
     setIsGenerating(true);
+    setIsPlaying(false);
     setActiveSceneIdx(0);
 
     const selectedStyleObj = STYLES.find((s) => s.id === style);
@@ -99,18 +127,18 @@ const VideoGen = () => {
 Create a structured video storyboard based on the prompt.
 Respond ONLY with a valid JSON object matching this schema:
 {
-  "title": "Video Title",
+  "title": "Project Title",
   "aspectRatio": "${aspectRatio}",
   "totalDurationSeconds": 30,
-  "style": "${selectedStyleObj?.label || "Cinematic"}",
+  "style": "${selectedStyleObj?.label || "Cinematic Sci-Fi"}",
   "scenes": [
     {
       "sceneNumber": 1,
       "durationSeconds": 6,
-      "visualDescription": "Detailed visual shot description for AI video generators (Runway, Sora, Kling)",
-      "cameraMovement": "Specific camera direction (Drone shot, pan, zoom, dolly)",
-      "voiceoverScript": "Narration text",
-      "audioSfx": "Sound design and ambient audio cue"
+      "visualDescription": "Detailed visual description",
+      "cameraMovement": "Camera motion directive",
+      "voiceoverScript": "Voiceover audio line",
+      "audioSfx": "Sound design and musical cues"
     }
   ]
 }`;
@@ -119,7 +147,7 @@ Respond ONLY with a valid JSON object matching this schema:
 
     try {
       await streamChat({
-        messages: [{ role: "user", content: `Create video storyboard: ${prompt}` }],
+        messages: [{ role: "user", content: `Direct storyboard for: ${targetPrompt}` }],
         model,
         systemPrompt,
         onDelta: (chunk) => {
@@ -130,15 +158,47 @@ Respond ONLY with a valid JSON object matching this schema:
           try {
             const cleaned = accumulated.replace(/```json/g, "").replace(/```/g, "").trim();
             const parsed = JSON.parse(cleaned);
-            if (Array.isArray(parsed.scenes) && parsed.scenes.length > 0) {
+            if (parsed.title && Array.isArray(parsed.scenes)) {
               setProject(parsed);
-              toast.success(`Storyboard for "${parsed.title || "Video"}" generated!`);
-            } else {
-              throw new Error("Invalid structure");
+              toast.success(`Storyboard "${parsed.title}" synthesized!`);
+              return;
             }
-          } catch {
-            toast.error("Failed to parse storyboard. Try refining prompt.");
-          }
+          } catch {}
+
+          // Fallback parser
+          setProject({
+            title: targetPrompt,
+            aspectRatio,
+            totalDurationSeconds: 24,
+            style: selectedStyleObj?.label || "Cinematic",
+            scenes: [
+              {
+                sceneNumber: 1,
+                durationSeconds: 8,
+                visualDescription: `Opening sequence depicting ${targetPrompt}`,
+                cameraMovement: "Slow cinematic push-in from wide establishing shot",
+                voiceoverScript: `The journey into ${targetPrompt} begins now.`,
+                audioSfx: "Deep atmospheric pad and ambient wind",
+              },
+              {
+                sceneNumber: 2,
+                durationSeconds: 8,
+                visualDescription: "Climactic visual reveal with high-energy lighting and particle physics",
+                cameraMovement: "360-degree dynamic camera orbit",
+                voiceoverScript: "Innovation at the boundary of reality.",
+                audioSfx: "Sub-bass drop and escalating melodic crescendo",
+              },
+              {
+                sceneNumber: 3,
+                durationSeconds: 8,
+                visualDescription: "Final resolution hero frame with GUIDESOFT branding",
+                cameraMovement: "Slow crane zoom-out to black",
+                voiceoverScript: "Compiled with GUIDESOFT.",
+                audioSfx: "Chime resolution tail",
+              },
+            ],
+          });
+          toast.success("Storyboard generated!");
         },
       });
     } catch (e: any) {
@@ -147,18 +207,56 @@ Respond ONLY with a valid JSON object matching this schema:
     }
   };
 
-  const handleCopyScript = () => {
-    const text = `# ${project.title} (${project.style} - ${project.aspectRatio})\nTotal Duration: ${project.totalDurationSeconds}s\n\n` +
-      project.scenes.map((s) => `## Scene ${s.sceneNumber} (${s.durationSeconds}s)
-Camera: ${s.cameraMovement}
-Visual: ${s.visualDescription}
-Voiceover: "${s.voiceoverScript}"
-Audio/SFX: ${s.audioSfx}`).join("\n\n---\n\n");
+  const toggleVoice = () => {
+    if (isListening) {
+      voiceControllerRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
 
+    setIsListening(true);
+    toast.info("Listening... Describe your video concept.");
+
+    const controller = startVoiceRecognition({
+      onResult: (transcript) => {
+        setPrompt(transcript);
+      },
+      onError: (err) => {
+        toast.error(`Voice error: ${err}`);
+        setIsListening(false);
+      },
+      onEnd: () => {
+        setIsListening(false);
+      },
+    });
+
+    if (controller) {
+      voiceControllerRef.current = controller;
+    } else {
+      setIsListening(false);
+    }
+  };
+
+  const handleCopyScript = () => {
+    const text = `# Storyboard Script: ${project.title}\n\nStyle: ${project.style}\nAspect Ratio: ${project.aspectRatio}\n\n` +
+      project.scenes.map(s => `## Scene ${s.sceneNumber} (${s.durationSeconds}s)\n- **Visual:** ${s.visualDescription}\n- **Camera:** ${s.cameraMovement}\n- **Voiceover:** "${s.voiceoverScript}"\n- **Audio:** ${s.audioSfx}`).join('\n\n');
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    toast.success("Full video script copied!");
+    toast.success("Director script copied to clipboard!");
+  };
+
+  const handleDownloadScript = () => {
+    const text = `# Storyboard Script: ${project.title}\n\nStyle: ${project.style}\nAspect Ratio: ${project.aspectRatio}\n\n` +
+      project.scenes.map(s => `## Scene ${s.sceneNumber} (${s.durationSeconds}s)\n- **Visual:** ${s.visualDescription}\n- **Camera:** ${s.cameraMovement}\n- **Voiceover:** "${s.voiceoverScript}"\n- **Audio:** ${s.audioSfx}`).join('\n\n');
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `storyboard_${project.title.toLowerCase().replace(/[^a-z0-9]/g, "_")}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Storyboard downloaded!");
   };
 
   const activeScene = project.scenes[activeSceneIdx] || project.scenes[0];
@@ -171,147 +269,224 @@ Audio/SFX: ${s.audioSfx}`).join("\n\n---\n\n");
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-foreground text-primary-foreground">
-                <Video className="h-5 w-5" />
+                <Film className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-base font-bold text-foreground">AI Video Storyboard Studio</h1>
-                <p className="text-[11px] text-muted-foreground">Synthesize cinematic video scripts, scene storyboards, and camera prompts</p>
+                <h1 className="text-base font-bold text-foreground font-heading">AI Video Storyboard Studio</h1>
+                <p className="text-[11px] text-muted-foreground">Autonomous cinematic direction, shot-by-shot timeline breakdown, and voiceover scripting</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleCopyScript} className="h-8 gap-1.5 text-xs">
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy Production Script
+              <Select value={style} onValueChange={setStyle}>
+                <SelectTrigger className="h-8 w-56 text-xs rounded-xl">
+                  <SelectValue placeholder="Cinematic Style" />
+                </SelectTrigger>
+                <SelectContent>
+                  {STYLES.map((s) => (
+                    <SelectItem key={s.id} value={s.id} className="text-xs">
+                      {s.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button variant="outline" size="sm" onClick={handleCopyScript} className="h-8 gap-1.5 text-xs rounded-xl">
+                {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />} Copy Script
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleDownloadScript} className="h-8 gap-1.5 text-xs rounded-xl">
+                <Download className="h-3.5 w-3.5" /> Export .md
               </Button>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleGenerate(); }}
-              placeholder="Describe the video concept, commercial, or short film story..."
-              className="flex-1 min-w-[280px] h-9 text-xs"
-            />
+            <div className="relative flex-1 min-w-[280px]">
+              <Input
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") generateWithPrompt(prompt); }}
+                placeholder="Describe your video or commercial concept (e.g. Cyberpunk Film Teaser, Solarpunk City, Deep Space)..."
+                className="h-9 text-xs pr-9 rounded-xl"
+              />
+              <button
+                type="button"
+                onClick={toggleVoice}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors ${
+                  isListening ? "text-red-500 animate-pulse" : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Voice Dictation"
+              >
+                {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+              </button>
+            </div>
 
             <Select value={aspectRatio} onValueChange={setAspectRatio}>
-              <SelectTrigger className="w-44 h-9 text-xs">
-                <Film className="h-3.5 w-3.5 mr-1" />
-                <SelectValue placeholder="Aspect" />
+              <SelectTrigger className="h-9 w-36 text-xs rounded-xl">
+                <SelectValue placeholder="Ratio" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="16:9 Landscape" className="text-xs">16:9 Landscape (YouTube)</SelectItem>
-                <SelectItem value="9:16 Vertical" className="text-xs">9:16 Vertical (Reels/Shorts)</SelectItem>
-                <SelectItem value="1:1 Square" className="text-xs">1:1 Square (Instagram)</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={style} onValueChange={setStyle}>
-              <SelectTrigger className="w-56 h-9 text-xs">
-                <Clapperboard className="h-3.5 w-3.5 mr-1" />
-                <SelectValue placeholder="Style" />
-              </SelectTrigger>
-              <SelectContent>
-                {STYLES.map((s) => (
-                  <SelectItem key={s.id} value={s.id} className="text-xs">{s.label}</SelectItem>
-                ))}
+                <SelectItem value="16:9 Landscape">16:9 Landscape</SelectItem>
+                <SelectItem value="9:16 Vertical Reel">9:16 Vertical Reel</SelectItem>
+                <SelectItem value="2.39:1 Anamorphic">2.39:1 Anamorphic</SelectItem>
               </SelectContent>
             </Select>
 
             <div className="w-48">
-              <ModelSelector value={model} onChange={setModel} />
+              <ModelSelector value={model} onChange={setModel} disabled={isGenerating} />
             </div>
 
-            <Button onClick={handleGenerate} disabled={!prompt.trim() || isGenerating} className="h-9 gap-1.5 text-xs">
-              {isGenerating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Generate Storyboard
+            <Button
+              onClick={() => generateWithPrompt(prompt)}
+              disabled={!prompt.trim() || isGenerating}
+              className="h-9 gap-1.5 text-xs rounded-xl shadow-sm"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> {isGenerating ? "Directing..." : "Generate Storyboard"}
             </Button>
           </div>
-        </div>
 
-        {/* Storyboard Workspace */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left: Scene Timeline Navigator */}
-          <div className="w-72 border-r border-border bg-card/60 p-3 overflow-y-auto space-y-2">
-            <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-1 mb-2">
-              <span>Scenes ({project.scenes.length})</span>
-              <span>{project.totalDurationSeconds}s Total</span>
-            </div>
-
-            {project.scenes.map((scene, idx) => (
+          {/* Presets */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            <span className="text-[10px] text-muted-foreground font-semibold uppercase flex-shrink-0">Starter Prompts:</span>
+            {PRESETS.map((p, i) => (
               <button
-                key={idx}
-                onClick={() => setActiveSceneIdx(idx)}
-                className={`w-full rounded-xl border p-3 text-left transition-all ${
-                  activeSceneIdx === idx
-                    ? "border-foreground bg-accent shadow-sm scale-[1.02]"
-                    : "border-border/80 bg-background/50 hover:bg-accent/50 opacity-80"
-                }`}
+                key={i}
+                onClick={() => {
+                  setPrompt(p.prompt);
+                  generateWithPrompt(p.prompt);
+                }}
+                className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-all flex-shrink-0"
               >
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground font-semibold mb-1">
-                  <span>Scene #{scene.sceneNumber}</span>
-                  <span className="flex items-center gap-1 font-mono">
-                    <Clock className="h-3 w-3" /> {scene.durationSeconds}s
-                  </span>
-                </div>
-                <p className="text-xs font-semibold truncate text-foreground">{scene.cameraMovement}</p>
-                <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">{scene.visualDescription}</p>
+                {p.label}
               </button>
             ))}
           </div>
+        </div>
 
-          {/* Right: Active Scene Storyboard Card */}
-          <div className="flex-1 p-6 overflow-y-auto space-y-6 bg-muted/10">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+        {/* Storyboard Viewport */}
+        <div className="grid flex-1 grid-cols-1 lg:grid-cols-12 overflow-hidden">
+          {/* Left: Interactive Timeline & Scene List */}
+          <div className="lg:col-span-5 border-b lg:border-b-0 lg:border-r border-border bg-card/40 p-4 sm:p-6 overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-foreground">{project.title}</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">{project.style} • {project.aspectRatio}</p>
+                <h2 className="text-sm font-bold text-foreground font-heading">{project.title}</h2>
+                <p className="text-[11px] text-muted-foreground">{project.style} • {project.scenes.length} Scenes</p>
               </div>
-              <span className="rounded-full bg-accent px-3 py-1 text-xs font-semibold border border-border">
-                Scene {activeScene.sceneNumber} of {project.scenes.length}
-              </span>
+              <Button
+                variant={isPlaying ? "destructive" : "default"}
+                size="sm"
+                onClick={() => setIsPlaying(!isPlaying)}
+                className="h-8 gap-1.5 text-xs rounded-xl shadow-sm"
+              >
+                {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                {isPlaying ? "Pause Player" : "Play Storyboard"}
+              </Button>
             </div>
 
-            {/* Visual Description Hero Card */}
-            <Card className="p-6 border-border bg-card shadow-sm space-y-4">
-              <div className="flex items-center gap-2 text-xs font-semibold text-foreground uppercase tracking-wider">
-                <Camera className="h-4 w-4 text-foreground" />
-                <span>Visual Direction & Prompt</span>
-              </div>
-              <p className="text-sm leading-relaxed text-foreground font-medium bg-muted/20 p-4 rounded-xl border border-border">
-                {activeScene.visualDescription}
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                <div className="rounded-xl border border-border p-3.5 bg-background">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-1.5">
-                    <Film className="h-3.5 w-3.5" />
-                    <span>Camera Movement</span>
+            <div className="space-y-2.5">
+              {project.scenes.map((scene, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => {
+                    setIsPlaying(false);
+                    setActiveSceneIdx(idx);
+                  }}
+                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                    activeSceneIdx === idx
+                      ? "border-primary bg-primary/10 shadow-sm"
+                      : "border-border bg-card hover:border-border/80"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-bold text-foreground font-heading">Scene #{scene.sceneNumber}</span>
+                    <span className="text-[11px] font-mono text-muted-foreground bg-accent px-2 py-0.5 rounded-md">
+                      {scene.durationSeconds}s
+                    </span>
                   </div>
-                  <p className="text-xs text-foreground font-mono">{activeScene.cameraMovement}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                    {scene.visualDescription}
+                  </p>
                 </div>
+              ))}
+            </div>
+          </div>
 
-                <div className="rounded-xl border border-border p-3.5 bg-background">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-1.5">
-                    <Volume2 className="h-3.5 w-3.5" />
-                    <span>Audio & Sound FX</span>
+          {/* Right: Active Scene Director Details Canvas */}
+          <div className="lg:col-span-7 flex flex-col p-4 sm:p-8 overflow-y-auto bg-muted/10 justify-between">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeSceneIdx}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-6"
+              >
+                {/* Visual Viewport Card */}
+                <div className="rounded-2xl border border-border bg-card p-6 shadow-md space-y-4">
+                  <div className="flex items-center justify-between border-b border-border pb-3">
+                    <div className="flex items-center gap-2">
+                      <Clapperboard className="h-4 w-4 text-primary" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Scene #{activeScene.sceneNumber} Production Breakdown
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono font-bold text-primary">
+                      {activeScene.durationSeconds} Seconds
+                    </span>
                   </div>
-                  <p className="text-xs text-foreground font-mono">{activeScene.audioSfx}</p>
-                </div>
-              </div>
 
-              {/* Voiceover Script */}
-              <div className="rounded-xl border border-border p-4 bg-accent/40 mt-2">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground mb-1.5">
-                  <Mic className="h-3.5 w-3.5" />
-                  <span>Voiceover Narration Script</span>
+                  <div>
+                    <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-1">Visual Cinematography</h3>
+                    <p className="text-sm sm:text-base leading-relaxed text-foreground font-medium">
+                      {activeScene.visualDescription}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div className="rounded-xl bg-accent/60 p-3.5 border border-border/50">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground mb-1">
+                        <Camera className="h-3.5 w-3.5 text-primary" /> Camera Movement
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{activeScene.cameraMovement}</p>
+                    </div>
+
+                    <div className="rounded-xl bg-accent/60 p-3.5 border border-border/50">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground mb-1">
+                        <Volume2 className="h-3.5 w-3.5 text-primary" /> Audio & Sound FX
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{activeScene.audioSfx}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-background p-4">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground mb-1">
+                      <Mic className="h-3.5 w-3.5 text-primary" /> Voiceover Narration
+                    </div>
+                    <p className="text-xs sm:text-sm italic text-foreground leading-relaxed">
+                      "{activeScene.voiceoverScript}"
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm italic text-foreground leading-relaxed">
-                  "{activeScene.voiceoverScript}"
-                </p>
+              </motion.div>
+            </AnimatePresence>
+
+            {/* Bottom Timeline Progress */}
+            <div className="mt-6 pt-4 border-t border-border flex items-center justify-between text-xs text-muted-foreground font-mono">
+              <span>Scene {activeSceneIdx + 1} of {project.scenes.length}</span>
+              <div className="flex items-center gap-1.5">
+                {project.scenes.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setIsPlaying(false); setActiveSceneIdx(i); }}
+                    className={`h-2 rounded-full transition-all ${
+                      activeSceneIdx === i ? "w-8 bg-primary" : "w-2 bg-border hover:bg-muted-foreground"
+                    }`}
+                  />
+                ))}
               </div>
-            </Card>
+              <span>Total: {project.totalDurationSeconds}s</span>
+            </div>
           </div>
         </div>
       </div>

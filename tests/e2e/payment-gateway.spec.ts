@@ -6,7 +6,7 @@ test.describe("Payment Gateway: GPay, UPI QR, Cards & Webhooks", () => {
     await expect(page.getByRole("heading", { name: "Power your workflow with GUIDESOFT" })).toBeVisible({ timeout: 15000 });
 
     // Click 'Upgrade to Pro'
-    await page.getByRole("button", { name: "Upgrade to Pro" }).click();
+    await page.locator("button:has-text('Upgrade to Pro')").click();
 
     // Modal should open
     await expect(page.getByText("Secure Checkout")).toBeVisible();
@@ -22,11 +22,11 @@ test.describe("Payment Gateway: GPay, UPI QR, Cards & Webhooks", () => {
 
     // 3. Test Cards Tab
     await page.locator("button:has-text('Cards')").click();
-    await expect(page.getByText("Card Number")).toBeVisible();
+    await expect(page.getByText("Cardholder Name")).toBeVisible();
     await expect(page.getByText("Expiry")).toBeVisible();
 
     // Complete payment simulation
-    await page.getByRole("button", { name: "Pay $19" }).click();
+    await page.locator("button:has-text('Pay $19')").click();
 
     // Verification receipt should appear
     await expect(page.getByRole("heading", { name: "Payment Successful!" })).toBeVisible({ timeout: 10000 });

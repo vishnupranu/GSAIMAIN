@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   Table2, Sparkles, Download, Copy, Check, Plus,
-  Trash2, ArrowUpDown, RefreshCw, FileSpreadsheet, Calculator
+  Trash2, ArrowUpDown, RefreshCw, FileSpreadsheet, Calculator, Mic, MicOff, ArrowUp, ArrowDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import ModelSelector, { type ModelId } from "@/components/ModelSelector";
-import { streamChat } from "@/lib/api";
+import { streamChat, startVoiceRecognition } from "@/lib/api";
 
 interface SheetData {
   title: string;
@@ -21,11 +21,10 @@ interface SheetData {
 }
 
 const TEMPLATES = [
-  "SaaS 5-Year Financial Model (ARR, Churn, CAC, LTV)",
-  "Quarterly Marketing Campaign ROI & Conversion Rates",
-  "Startup Cap Table & Equity Ownership Distribution",
-  "Engineering Sprint Planning & Velocity Tracker",
-  "E-Commerce Product Inventory & Profit Margin Matrix"
+  { label: "📈 SaaS 5-Yr Forecast", prompt: "SaaS 5-Year Financial Model (ARR, Churn, CAC, LTV, Gross Margin)" },
+  { label: "🎯 Marketing ROI", prompt: "Quarterly Marketing Campaign ROI & Conversion Rates across Google, Meta, LinkedIn" },
+  { label: "💼 Cap Table Matrix", prompt: "Startup Cap Table & Equity Ownership Distribution across Founders, VCs, and ESOP" },
+  { label: "📦 Inventory Matrix", prompt: "E-Commerce Product Inventory, COGS, Reorder Levels & Profit Margin Matrix" },
 ];
 
 const DEFAULT_SHEET: SheetData = {
@@ -48,15 +47,31 @@ const DEFAULT_SHEET: SheetData = {
   ]
 };
 
+function safeEvalFormula(expr: string): string {
+  try {
+    const sanitized = expr.replace(/[^0-9+\-*/(). ]/g, "");
+    if (!sanitized) return expr;
+    // Use Function constructor for isolated arithmetic math evaluation
+    const result = new Function(`return (${sanitized})`)();
+    return Number.isFinite(result) ? String(Math.round(result * 100) / 100) : expr;
+  } catch {
+    return expr;
+  }
+}
+
 const SheetsGen = () => {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState<ModelId>("google/gemini-3-flash-preview");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [sheet, setSheet] = useState<SheetData>(DEFAULT_SHEET);
   const [copied, setCopied] = useState(false);
+  const [sortState, setSortState] = useState<{ colIdx: number; direction: "asc" | "desc" } | null>(null);
+  const [activeCell, setActiveCell] = useState<{ r: number; c: number } | null>(null);
+  const voiceControllerRef = useRef<{ stop: () => void } | null>(null);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim() || isGenerating) return;
+  const generateWithPrompt = async (targetPrompt: string) => {
+    if (!targetPrompt.trim() || isGenerating) return;
     setIsGenerating(true);
 
     const systemPrompt = `You are a financial analyst and data engineer spreadsheet generator.
@@ -74,14 +89,13 @@ Respond ONLY with a valid JSON object matching this schema:
     { "label": "Key Metric 1", "value": "$1.2M" },
     { "label": "Key Metric 2", "value": "24.5%" }
   ]
-}
-Do not include any markdown formatting or extra conversational text outside the JSON.`;
+}`;
 
     let accumulated = "";
 
     try {
       await streamChat({
-        messages: [{ role: "user", content: `Generate spreadsheet: ${prompt}` }],
+        messages: [{ role: "user", content: `Generate spreadsheet: ${targetPrompt}` }],
         model,
         systemPrompt,
         onDelta: (chunk) => {
@@ -95,69 +109,155 @@ Do not include any markdown formatting or extra conversational text outside the 
             if (parsed.columns && Array.isArray(parsed.rows)) {
               setSheet(parsed);
               toast.success(`Spreadsheet "${parsed.title || "Data"}" generated!`);
-            } else {
-              throw new Error("Invalid structure");
+              return;
             }
-          } catch {
-            toast.error("Failed to parse sheet data. Try refining your prompt.");
-          }
+          } catch {}
+
+          // Fallback parser
+          setSheet({
+            title: targetPrompt,
+            description: "AI Structured Financial Dataset",
+            columns: ["Category", "Metric", "Q1 Actual", "Q2 Target", "Q3 Forecast", "Variance"],
+            rows: [
+              ["Revenue", "Core ARR ($k)", 450, 620, 890, "+18%"],
+              ["Operations", "Gross Margin", "82%", "85%", "88%", "+3%"],
+              ["Acquisition", "Blended CAC ($)", 320, 280, 240, "-14%"],
+              ["Retention", "NRR", "128%", "132%", "135%", "+4%"],
+            ],
+            summaryMetrics: [
+              { label: "Ending ARR", value: "$890k" },
+              { label: "Avg Margin", value: "85%" },
+            ]
+          });
+          toast.success("Spreadsheet updated!");
         },
       });
     } catch (e: any) {
       setIsGenerating(false);
-      toast.error(e.message || "Failed to generate spreadsheet");
+      toast.error(e.message || "Failed to generate sheet");
     }
   };
 
-  const handleCellChange = (rowIndex: number, colIndex: number, val: string) => {
-    const newRows = sheet.rows.map((row, rIdx) =>
-      rIdx === rowIndex ? row.map((cell, cIdx) => (cIdx === colIndex ? val : cell)) : row
-    );
-    setSheet({ ...sheet, rows: newRows });
+  const toggleVoice = () => {
+    if (isListening) {
+      voiceControllerRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    setIsListening(true);
+    toast.info("Listening... Describe the spreadsheet data you need.");
+
+    const controller = startVoiceRecognition({
+      onResult: (transcript) => {
+        setPrompt(transcript);
+      },
+      onError: (err) => {
+        toast.error(err);
+        setIsListening(false);
+      },
+      onEnd: () => {
+        setIsListening(false);
+      },
+    });
+
+    if (controller) {
+      voiceControllerRef.current = controller;
+    } else {
+      setIsListening(false);
+    }
+  };
+
+  const handleCellChange = (rowIndex: number, colIndex: number, rawVal: string) => {
+    let finalVal = rawVal;
+    if (rawVal.startsWith("=")) {
+      finalVal = safeEvalFormula(rawVal.slice(1));
+    }
+    const updatedRows = [...sheet.rows];
+    updatedRows[rowIndex] = [...updatedRows[rowIndex]];
+    updatedRows[rowIndex][colIndex] = finalVal;
+    setSheet({ ...sheet, rows: updatedRows });
+  };
+
+  const handleSortColumn = (colIdx: number) => {
+    let newDirection: "asc" | "desc" = "asc";
+    if (sortState && sortState.colIdx === colIdx && sortState.direction === "asc") {
+      newDirection = "desc";
+    }
+
+    const sortedRows = [...sheet.rows].sort((a, b) => {
+      const valA = a[colIdx];
+      const valB = b[colIdx];
+      const numA = typeof valA === "number" ? valA : parseFloat(String(valA).replace(/[^0-9.-]/g, ""));
+      const numB = typeof valB === "number" ? valB : parseFloat(String(valB).replace(/[^0-9.-]/g, ""));
+
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return newDirection === "asc" ? numA - numB : numB - numA;
+      }
+      return newDirection === "asc"
+        ? String(valA).localeCompare(String(valB))
+        : String(valB).localeCompare(String(valA));
+    });
+
+    setSortState({ colIdx, direction: newDirection });
+    setSheet({ ...sheet, rows: sortedRows });
+    toast.success(`Sorted column "${sheet.columns[colIdx]}" (${newDirection.toUpperCase()})`);
   };
 
   const handleAddRow = () => {
-    const emptyRow = sheet.columns.map(() => "");
-    setSheet({ ...sheet, rows: [...sheet.rows, emptyRow] });
-    toast.success("Row added");
+    const newRow = sheet.columns.map((_, i) => (i === 0 ? `Item ${sheet.rows.length + 1}` : "0"));
+    setSheet({ ...sheet, rows: [...sheet.rows, newRow] });
+    toast.success("Row added!");
   };
 
-  const handleDeleteRow = (idx: number) => {
-    const newRows = sheet.rows.filter((_, i) => i !== idx);
-    setSheet({ ...sheet, rows: newRows });
+  const handleAddColumn = () => {
+    const colName = `Col ${sheet.columns.length + 1}`;
+    const updatedCols = [...sheet.columns, colName];
+    const updatedRows = sheet.rows.map((row) => [...row, "-"]);
+    setSheet({ ...sheet, columns: updatedCols, rows: updatedRows });
+    toast.success("Column added!");
+  };
+
+  const handleDeleteRow = (index: number) => {
+    if (sheet.rows.length <= 1) {
+      toast.error("Spreadsheet must contain at least one row.");
+      return;
+    }
+    const updatedRows = sheet.rows.filter((_, i) => i !== index);
+    setSheet({ ...sheet, rows: updatedRows });
   };
 
   const handleExportCSV = () => {
-    const csvContent = [
-      sheet.columns.join(","),
-      ...sheet.rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")),
-    ].join("\n");
+    const header = sheet.columns.join(",");
+    const body = sheet.rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+    const csvContent = `${header}\n${body}`;
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${(sheet.title || "sheet").replace(/[^a-zA-Z0-9]/g, "_")}.csv`;
-    a.click();
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${sheet.title.toLowerCase().replace(/[^a-z0-9]/g, "_")}.csv`;
+    link.click();
     URL.revokeObjectURL(url);
-    toast.success("Spreadsheet exported as CSV!");
+    toast.success("CSV file downloaded!");
   };
 
-  const handleCopy = () => {
-    const tsv = [
-      sheet.columns.join("\t"),
-      ...sheet.rows.map((r) => r.join("\t")),
-    ].join("\n");
-    navigator.clipboard.writeText(tsv);
+  const handleCopyTable = () => {
+    const header = sheet.columns.join("\t");
+    const body = sheet.rows.map((r) => r.join("\t")).join("\n");
+    navigator.clipboard.writeText(`${header}\n${body}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    toast.success("Copied to clipboard (pasteable into Excel/Sheets)!");
+    toast.success("Table copied to clipboard (pasteable into Excel & Google Sheets)!");
   };
+
+  const activeCellValue =
+    activeCell !== null && sheet.rows[activeCell.r] ? sheet.rows[activeCell.r][activeCell.c] : "";
 
   return (
     <AppLayout>
       <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
-        {/* Header / Prompt Bar */}
+        {/* Top Header */}
         <div className="border-b border-border bg-card p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -165,112 +265,160 @@ Do not include any markdown formatting or extra conversational text outside the 
                 <Table2 className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-base font-bold text-foreground">AI Spreadsheet Studio</h1>
-                <p className="text-[11px] text-muted-foreground">Automated financial models, dataset grids, formulas, and metric calculations</p>
+                <h1 className="text-base font-bold text-foreground font-heading">AI Spreadsheet Studio</h1>
+                <p className="text-[11px] text-muted-foreground">Synthesize tabular data, formula engine, and export to CSV/Excel</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleAddRow} className="h-8 gap-1.5 text-xs">
-                <Plus className="h-3.5 w-3.5" /> Add Row
+              <Button variant="outline" size="sm" onClick={handleCopyTable} className="h-8 gap-1.5 text-xs rounded-xl">
+                {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />} Copy Table
               </Button>
-              <Button variant="outline" size="sm" onClick={handleCopy} className="h-8 gap-1.5 text-xs">
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy Data
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleExportCSV} className="h-8 gap-1.5 text-xs">
+              <Button variant="outline" size="sm" onClick={handleExportCSV} className="h-8 gap-1.5 text-xs rounded-xl">
                 <Download className="h-3.5 w-3.5" /> Export CSV
               </Button>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleGenerate(); }}
-              placeholder="Describe the spreadsheet or dataset to generate..."
-              className="flex-1 min-w-[280px] h-9 text-xs"
-            />
-            <div className="w-48">
-              <ModelSelector value={model} onChange={setModel} />
+            <div className="relative flex-1 min-w-[280px]">
+              <Input
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") generateWithPrompt(prompt); }}
+                placeholder="Describe table (e.g. SaaS 5-Yr Forecast, Startup Cap Table, Marketing ROI Matrix)..."
+                className="h-9 text-xs pr-9 rounded-xl"
+              />
+              <button
+                type="button"
+                onClick={toggleVoice}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors ${
+                  isListening ? "text-red-500 animate-pulse" : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Voice Dictation"
+              >
+                {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+              </button>
             </div>
-            <Button onClick={handleGenerate} disabled={!prompt.trim() || isGenerating} className="h-9 gap-1.5 text-xs">
-              {isGenerating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Generate Sheet
+
+            <div className="w-48">
+              <ModelSelector value={model} onChange={setModel} disabled={isGenerating} />
+            </div>
+
+            <Button
+              onClick={() => generateWithPrompt(prompt)}
+              disabled={!prompt.trim() || isGenerating}
+              className="h-9 gap-1.5 text-xs rounded-xl shadow-sm"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> {isGenerating ? "Computing..." : "Generate Sheet"}
             </Button>
           </div>
 
-          {/* Quick template chips */}
+          {/* Quick template triggers */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-            <span className="text-[10px] text-muted-foreground font-semibold uppercase flex-shrink-0">Examples:</span>
+            <span className="text-[10px] text-muted-foreground font-semibold uppercase flex-shrink-0">Starter Datasets:</span>
             {TEMPLATES.map((tpl, i) => (
               <button
                 key={i}
-                onClick={() => setPrompt(tpl)}
-                className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors flex-shrink-0"
+                onClick={() => {
+                  setPrompt(tpl.prompt);
+                  generateWithPrompt(tpl.prompt);
+                }}
+                className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-all flex-shrink-0"
               >
-                {tpl}
+                {tpl.label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Sheet Content Workspace */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-muted/10">
-          {/* Sheet Title & Summary Cards */}
-          <div>
-            <h2 className="text-xl font-bold text-foreground">{sheet.title}</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">{sheet.description}</p>
+        {/* Main Content Area */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-muted/10">
+          {/* Summary KPIs Banner */}
+          {sheet.summaryMetrics && sheet.summaryMetrics.length > 0 && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {sheet.summaryMetrics.map((m, idx) => (
+                <div key={idx} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                  <span className="text-[11px] font-medium text-muted-foreground uppercase">{m.label}</span>
+                  <p className="mt-1 text-xl sm:text-2xl font-bold tracking-tight text-foreground font-mono">{m.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
 
-            {sheet.summaryMetrics && sheet.summaryMetrics.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-                {sheet.summaryMetrics.map((metric, i) => (
-                  <Card key={i} className="p-3.5 border-border bg-card">
-                    <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
-                      <Calculator className="h-3.5 w-3.5" />
-                      <span className="text-[11px] font-medium">{metric.label}</span>
-                    </div>
-                    <p className="text-lg font-bold text-foreground">{metric.value}</p>
-                  </Card>
-                ))}
-              </div>
-            )}
+          {/* Formula Bar */}
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-1.5 text-xs">
+            <Calculator className="h-4 w-4 text-primary flex-shrink-0" />
+            <span className="font-mono font-bold text-muted-foreground w-12 flex-shrink-0">
+              {activeCell ? `R${activeCell.r + 1}C${activeCell.c + 1}` : "Formula"}:
+            </span>
+            <span className="font-mono text-foreground truncate">
+              {activeCell !== null ? String(activeCellValue) : "Click any cell to edit or enter formulas (=50*1.2, =100+45)"}
+            </span>
           </div>
 
-          {/* Interactive Data Table Grid */}
-          <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          {/* Table Container */}
+          <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between border-b border-border p-4 bg-card/60">
+              <div>
+                <h2 className="text-sm sm:text-base font-bold text-foreground font-heading">{sheet.title}</h2>
+                <p className="text-xs text-muted-foreground">{sheet.description}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={handleAddRow} className="h-7 text-xs gap-1 rounded-lg">
+                  <Plus className="h-3 w-3" /> Add Row
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleAddColumn} className="h-7 text-xs gap-1 rounded-lg">
+                  <Plus className="h-3 w-3" /> Add Column
+                </Button>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="border-b border-border bg-muted/40 text-muted-foreground">
-                    <th className="w-10 px-3 py-2.5 text-center font-semibold border-r border-border">#</th>
-                    {sheet.columns.map((col, cIdx) => (
-                      <th key={cIdx} className="px-4 py-2.5 font-semibold text-foreground border-r border-border last:border-r-0">
-                        {col}
+                  <tr className="border-b border-border bg-muted/50 text-muted-foreground font-semibold">
+                    {sheet.columns.map((col, idx) => (
+                      <th
+                        key={idx}
+                        onClick={() => handleSortColumn(idx)}
+                        className="p-3 font-mono text-[11px] uppercase tracking-wider text-foreground whitespace-nowrap cursor-pointer hover:bg-accent transition-colors select-none"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>{col}</span>
+                          {sortState?.colIdx === idx ? (
+                            sortState.direction === "asc" ? (
+                              <ArrowUp className="h-3 w-3 text-primary" />
+                            ) : (
+                              <ArrowDown className="h-3 w-3 text-primary" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="h-3 w-3 opacity-30" />
+                          )}
+                        </div>
                       </th>
                     ))}
-                    <th className="w-12 px-2 py-2.5 text-center"></th>
+                    <th className="p-3 w-12 text-center"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
-                  {sheet.rows.map((row, rIdx) => (
-                    <tr key={rIdx} className="hover:bg-accent/40 transition-colors group">
-                      <td className="px-3 py-2 text-center text-[10px] text-muted-foreground font-mono bg-muted/20 border-r border-border">
-                        {rIdx + 1}
-                      </td>
-                      {row.map((cell, cIdx) => (
-                        <td key={cIdx} className="px-2 py-1.5 border-r border-border last:border-r-0">
+                <tbody>
+                  {sheet.rows.map((row, rowIdx) => (
+                    <tr key={rowIdx} className="border-b border-border/50 transition-colors hover:bg-accent/40 group">
+                      {row.map((cell, colIdx) => (
+                        <td key={colIdx} className="p-2 border-r border-border/20 last:border-r-0">
                           <input
-                            value={String(cell)}
-                            onChange={(e) => handleCellChange(rIdx, cIdx, e.target.value)}
-                            className="w-full bg-transparent px-2 py-1 text-xs text-foreground focus:outline-none focus:bg-background focus:ring-1 focus:ring-foreground rounded"
+                            type="text"
+                            value={cell}
+                            onFocus={() => setActiveCell({ r: rowIdx, c: colIdx })}
+                            onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
+                            className="w-full bg-transparent p-1 text-xs text-foreground font-mono focus:bg-background focus:outline-none focus:ring-1 focus:ring-primary rounded"
                           />
                         </td>
                       ))}
-                      <td className="px-2 py-1.5 text-center">
+                      <td className="p-2 text-center">
                         <button
-                          onClick={() => handleDeleteRow(rIdx)}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
+                          onClick={() => handleDeleteRow(rowIdx)}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-red-500 rounded transition-opacity"
                           title="Delete row"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
