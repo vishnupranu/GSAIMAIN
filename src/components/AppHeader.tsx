@@ -2,9 +2,10 @@ import { Button } from "@/components/ui/button";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { LogOut, User, Search, Shield, Settings } from "lucide-react";
+import { LogOut, Search, Shield, HardDrive, Swords, Users } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import RoleSettingsModal from "./RoleSettingsModal";
+import BackupRestoreModal from "./BackupRestoreModal";
 import { useUserRole } from "@/hooks/useUserRole";
 import { toast } from "sonner";
 
@@ -12,6 +13,7 @@ const AppHeader = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const { role, config } = useUserRole();
 
   const openCommandPalette = () => {
@@ -39,19 +41,48 @@ const AppHeader = () => {
   return (
     <>
       <header className="flex h-14 items-center justify-between gap-3 px-4 md:px-6">
-        <button
-          onClick={openCommandPalette}
-          className="flex items-center gap-2 rounded-xl border border-border bg-card/60 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-all"
-        >
-          <Search className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Search studios or actions...</span>
-          <span className="inline sm:hidden">Search...</span>
-          <kbd className="hidden sm:inline-flex h-4 items-center rounded border border-border bg-muted px-1.5 font-mono text-[10px]">
-            ⌘K
-          </kbd>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openCommandPalette}
+            className="flex items-center gap-2 rounded-xl border border-border bg-card/60 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-all"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Search studios or actions...</span>
+            <span className="inline sm:hidden">Search...</span>
+            <kbd className="hidden sm:inline-flex h-4 items-center rounded border border-border bg-muted px-1.5 font-mono text-[10px]">
+              ⌘K
+            </kbd>
+          </button>
+
+          {/* Direct Studio Quick Launchers */}
+          <Link
+            to="/swarm"
+            className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-border text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-all"
+            title="Multi-Agent Swarm Roundtable"
+          >
+            <Users className="h-3.5 w-3.5 text-primary" />
+            <span className="font-medium">Swarm</span>
+          </Link>
+          <Link
+            to="/arena"
+            className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-border text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-all"
+            title="Model Arena & Benchmarks"
+          >
+            <Swords className="h-3.5 w-3.5 text-purple-400" />
+            <span className="font-medium">Arena</span>
+          </Link>
+        </div>
 
         <div className="flex items-center gap-2.5">
+          {/* Backup / Restore Button */}
+          <button
+            onClick={() => setIsBackupModalOpen(true)}
+            className="p-2 rounded-xl border border-border bg-card/60 text-muted-foreground hover:bg-accent hover:text-foreground transition-all"
+            title="Workspace Backup & Migration"
+          >
+            <HardDrive className="h-3.5 w-3.5" />
+          </button>
+
           {/* Universal Role Badge Trigger */}
           <button
             onClick={() => setIsRoleModalOpen(true)}
@@ -89,7 +120,14 @@ const AppHeader = () => {
       </header>
 
       {/* Universal Roles & Permissions Modal */}
-      <RoleSettingsModal isOpen={isRoleModalOpen} onClose={() => setIsRoleModalOpen(false)} />
+      {isRoleModalOpen && (
+        <RoleSettingsModal isOpen={isRoleModalOpen} onClose={() => setIsRoleModalOpen(false)} />
+      )}
+
+      {/* Backup & Restore Modal */}
+      {isBackupModalOpen && (
+        <BackupRestoreModal isOpen={isBackupModalOpen} onClose={() => setIsBackupModalOpen(false)} />
+      )}
     </>
   );
 };

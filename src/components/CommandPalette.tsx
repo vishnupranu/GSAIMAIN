@@ -103,6 +103,18 @@ export function CommandPalette() {
     },
     {
       icon: Sparkles,
+      label: "Multi-Agent Swarm Intelligence",
+      category: "Studios",
+      action: () => { navigate("/swarm"); setOpen(false); },
+    },
+    {
+      icon: Sparkles,
+      label: "Multi-Model Arena & Cost Benchmark",
+      category: "Studios",
+      action: () => { navigate("/arena"); setOpen(false); },
+    },
+    {
+      icon: Sparkles,
       label: "All 12 Agents Directory",
       category: "Studios",
       action: () => { navigate("/agents"); setOpen(false); },

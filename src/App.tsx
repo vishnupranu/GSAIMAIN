@@ -10,6 +10,8 @@ import Chat from "./pages/Chat";
 import CodeGen from "./pages/CodeGen";
 import ImageGen from "./pages/ImageGen";
 import CustomAgent from "./pages/CustomAgent";
+import Swarm from "./pages/Swarm";
+import Arena from "./pages/Arena";
 import SlidesGen from "./pages/SlidesGen";
 import SheetsGen from "./pages/SheetsGen";
 import DocsGen from "./pages/DocsGen";
@@ -39,6 +41,8 @@ const App = () => (
           <Route path="/code" element={<CodeGen />} />
           <Route path="/image" element={<ImageGen />} />
           <Route path="/custom-agent" element={<CustomAgent />} />
+          <Route path="/swarm" element={<Swarm />} />
+          <Route path="/arena" element={<Arena />} />
           <Route path="/slides" element={<SlidesGen />} />
           <Route path="/sheets" element={<SheetsGen />} />
           <Route path="/docs" element={<DocsGen />} />

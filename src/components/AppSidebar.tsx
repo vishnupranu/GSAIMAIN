@@ -1,4 +1,4 @@
-import { Home, MessageCircle, Compass, Code2, Image, CreditCard, HelpCircle, LayoutDashboard, Bot, Shield } from "lucide-react";
+import { Home, MessageCircle, Compass, Code2, Image as ImageIcon, CreditCard, HelpCircle, LayoutDashboard, Bot, Shield, Users, Swords } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
 
@@ -7,7 +7,9 @@ const navItems = [
   { icon: MessageCircle, label: "Chat", path: "/chat" },
   { icon: Code2, label: "Code", path: "/code" },
   { icon: Bot, label: "Agents", path: "/custom-agent" },
-  { icon: Image, label: "Image", path: "/image" },
+  { icon: Users, label: "Swarm", path: "/swarm" },
+  { icon: Swords, label: "Arena", path: "/arena" },
+  { icon: ImageIcon, label: "Image", path: "/image" },
   { icon: Compass, label: "Hub", path: "/agents" },
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: CreditCard, label: "Pricing", path: "/pricing" },
@@ -34,15 +36,15 @@ const AppSidebar = () => {
               <Link
                 key={path}
                 to={path}
-                className={`group flex h-12 w-12 flex-col items-center justify-center rounded-xl text-xs transition-all ${
+                className={`group flex h-11 w-11 flex-col items-center justify-center rounded-xl text-xs transition-all ${
                   isActive
                     ? "bg-accent text-foreground font-semibold shadow-xs"
                     : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                 }`}
                 title={label}
               >
-                <Icon className="mb-0.5 h-4 w-4" strokeWidth={1.8} />
-                <span className="text-[9px]">{label}</span>
+                <Icon className="mb-0.5 h-3.5 w-3.5" strokeWidth={1.8} />
+                <span className="text-[8px] leading-tight">{label}</span>
               </Link>
             );
           })}

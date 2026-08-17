@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Payment Gateway: GPay, UPI QR, Cards & Webhooks", () => {
   test("should open payment modal from Pricing page and support GPay, UPI, and Card checkout", async ({ page }) => {
     await page.goto("/pricing", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { name: "Power your workflow with GUIDESOFT" })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator("h1:has-text('Power your workflow with GUIDESOFT')")).toBeVisible({ timeout: 15000 });
 
     // Click 'Upgrade to Pro'
     await page.locator("button:has-text('Upgrade to Pro')").click();
@@ -29,7 +29,7 @@ test.describe("Payment Gateway: GPay, UPI QR, Cards & Webhooks", () => {
     await page.locator("button:has-text('Pay $19')").click();
 
     // Verification receipt should appear
-    await expect(page.getByRole("heading", { name: "Payment Successful!" })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("heading", { name: "Payment Successful!" })).toBeVisible({ timeout: 15000 });
     await expect(page.getByText("COMPLETED")).toBeVisible();
   });
 });

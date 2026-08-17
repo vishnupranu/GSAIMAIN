@@ -45,7 +45,7 @@ export function RoleSettingsModal({ isOpen, onClose }: RoleSettingsModalProps) {
   ] as const;
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
         <DialogTitle className="sr-only">User Roles & Permissions</DialogTitle>
         

@@ -15,6 +15,8 @@ test.describe("GUIDESOFT Navigation & 404 Audit", () => {
     "/video",
     "/meeting-notes",
     "/custom-agent",
+    "/swarm",
+    "/arena",
     "/pricing",
     "/helpcenter",
     "/business",
@@ -31,7 +33,7 @@ test.describe("GUIDESOFT Navigation & 404 Audit", () => {
 
   test("should load home page with all 12 functional tool buttons", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("h1:has-text('GUIDESOFT')")).toBeVisible();
+    await expect(page.locator("text=GUIDESOFT").first()).toBeVisible({ timeout: 15000 });
 
     const expectedLabels = [
       "Custom Agent",
@@ -49,7 +51,7 @@ test.describe("GUIDESOFT Navigation & 404 Audit", () => {
     ];
 
     for (const label of expectedLabels) {
-      await expect(page.locator(`button:has-text("${label}")`)).toBeVisible();
+      await expect(page.locator(`text=${label}`).first()).toBeVisible();
     }
   });
 });

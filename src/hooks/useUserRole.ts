@@ -93,43 +93,56 @@ export const ROLE_CONFIG: Record<UserRole, { label: string; badge: string; color
   },
 };
 
+const VALID_ROLES: UserRole[] = ["admin", "enterprise", "creator", "member", "guest"];
 const STORAGE_KEY = "guidesoft_user_role";
 
+function getInitialRole(): UserRole {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const saved = window.localStorage.getItem(STORAGE_KEY);
+      if (saved && VALID_ROLES.includes(saved as UserRole)) {
+        return saved as UserRole;
+      }
+    }
+  } catch {}
+  return "admin";
+}
+
 export function useUserRole() {
-  const [role, setRoleState] = useState<UserRole>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && saved in ROLE_PERMISSIONS) return saved as UserRole;
-    } catch {}
-    return "admin"; // Default to admin for full workspace access
-  });
+  const [role, setRoleState] = useState<UserRole>(getInitialRole);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, role);
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem(STORAGE_KEY, role);
+      }
     } catch {}
   }, [role]);
 
   const setRole = (newRole: UserRole) => {
     setRoleState(newRole);
-    window.dispatchEvent(new CustomEvent("guidesoft:role-changed", { detail: newRole }));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("guidesoft:role-changed", { detail: newRole }));
+    }
   };
 
   useEffect(() => {
     const handleRoleChange = (e: any) => {
-      if (e.detail && e.detail in ROLE_PERMISSIONS) {
-        setRoleState(e.detail);
+      if (e.detail && VALID_ROLES.includes(e.detail as UserRole)) {
+        setRoleState(e.detail as UserRole);
       }
     };
-    window.addEventListener("guidesoft:role-changed", handleRoleChange);
-    return () => window.removeEventListener("guidesoft:role-changed", handleRoleChange);
+    if (typeof window !== "undefined") {
+      window.addEventListener("guidesoft:role-changed", handleRoleChange);
+      return () => window.removeEventListener("guidesoft:role-changed", handleRoleChange);
+    }
   }, []);
 
-  const permissions = ROLE_PERMISSIONS[role];
-  const config = ROLE_CONFIG[role];
+  const permissions = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.admin;
+  const config = ROLE_CONFIG[role] || ROLE_CONFIG.admin;
 
   const hasPermission = (permission: keyof RolePermissions): boolean => {
-    return !!permissions[permission];
+    return Boolean(permissions && permissions[permission]);
   };
 
   return {

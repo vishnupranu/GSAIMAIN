@@ -1,0 +1,16 @@
+{
+  "name": "GUIDESOFT AI Enterprise Workspace",
+  "short_name": "GUIDESOFT",
+  "description": "Next-Generation Autonomous Multi-Agent AI Suite & 12 Creative Studios",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

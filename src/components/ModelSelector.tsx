@@ -39,6 +39,8 @@ export const STATIC_MODELS: ModelInfo[] = [
   { id: "litellm/claude-3-5-sonnet", label: "Claude 3.5 Sonnet (LiteLLM)", provider: "LiteLLM", speed: "Medium" },
 ];
 
+export const AVAILABLE_MODELS = STATIC_MODELS;
+
 export type ModelId = string;
 
 // Group models by provider
