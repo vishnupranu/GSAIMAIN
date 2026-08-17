@@ -1,45 +1,51 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Sparkles, PanelLeftClose, PanelLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { streamChat, type Msg } from "@/lib/streamChat";
+import { streamChat, type Msg } from "@/lib/api";
 import type { ModelId } from "@/components/ModelSelector";
 import AppLayout from "@/components/AppLayout";
 import ChatMessageList from "@/components/ChatMessageList";
 import ChatInput from "@/components/ChatInput";
 import ChatSidebar from "@/components/ChatSidebar";
 import { Button } from "@/components/ui/button";
+import { useConversations } from "@/hooks/useConversations";
 
 const Chat = () => {
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get("q") || "";
+  const initialConvId = searchParams.get("id") || null;
+
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [model, setModel] = useState<ModelId>("google/gemini-3-flash-preview");
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(initialConvId);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentInitial = useRef(false);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUserId(session?.user?.id ?? null);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUserId(session?.user?.id ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  const { createConversation, appendMessage, getConversation, refresh } = useConversations();
 
+  // Auto-scroll on new messages
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  // Load conversation from localStorage if ?id= param given
+  useEffect(() => {
+    if (initialConvId) {
+      const conv = getConversation(initialConvId);
+      if (conv) {
+        setModel(conv.model as ModelId);
+        setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content })));
+      }
+    }
+  }, [initialConvId]);
+
+  // Auto-send initial query from ?q= param
   useEffect(() => {
     if (initialQuery && !sentInitial.current) {
       sentInitial.current = true;
@@ -47,55 +53,37 @@ const Chat = () => {
     }
   }, [initialQuery]);
 
-  const createConversation = async (firstMsg: string): Promise<string | null> => {
-    if (!userId) return null;
-    const title = firstMsg.slice(0, 80) || "New Chat";
-    const { data, error } = await supabase
-      .from("conversations")
-      .insert({ user_id: userId, title, model })
-      .select("id")
-      .single();
-    if (error) { console.error(error); return null; }
-    return data.id;
-  };
-
-  const saveMessage = async (convId: string, role: string, content: string) => {
-    await supabase.from("chat_messages").insert({ conversation_id: convId, role, content });
-  };
-
-  const loadConversation = async (id: string) => {
-    setConversationId(id);
-    const { data: conv } = await supabase.from("conversations").select("model").eq("id", id).single();
-    if (conv?.model) setModel(conv.model as ModelId);
-
-    const { data: msgs } = await supabase
-      .from("chat_messages")
-      .select("role, content")
-      .eq("conversation_id", id)
-      .order("created_at", { ascending: true });
-    setMessages((msgs || []).map((m) => ({ role: m.role as Msg["role"], content: m.content })));
-  };
-
   const handleNewChat = () => {
     setConversationId(null);
     setMessages([]);
     setInput("");
   };
 
+  const loadConversation = (id: string) => {
+    const conv = getConversation(id);
+    if (!conv) return;
+    setConversationId(id);
+    setModel(conv.model as ModelId);
+    setMessages(conv.messages.map((m) => ({ role: m.role, content: m.content })));
+  };
+
   const sendMessage = async (text: string) => {
-    const userMsg: Msg = { role: "user", content: text.trim() };
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    const userMsg: Msg = { role: "user", content: trimmed };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
     setIsLoading(true);
 
-    // Persist
+    // Persist user message
     let convId = conversationId;
-    if (!convId && userId) {
-      convId = await createConversation(text.trim());
-      if (convId) setConversationId(convId);
+    if (!convId) {
+      convId = createConversation(trimmed, model);
+      setConversationId(convId);
     }
-    if (convId) await saveMessage(convId, "user", text.trim());
+    appendMessage(convId, "user", trimmed);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -106,7 +94,9 @@ const Chat = () => {
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === "assistant") {
-          return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantSoFar } : m));
+          return prev.map((m, i) =>
+            i === prev.length - 1 ? { ...m, content: assistantSoFar } : m
+          );
         }
         return [...prev, { role: "assistant", content: assistantSoFar }];
       });
@@ -117,11 +107,11 @@ const Chat = () => {
         messages: newMessages,
         model,
         onDelta: upsertAssistant,
-        onDone: async () => {
+        onDone: () => {
           setIsLoading(false);
           if (convId && assistantSoFar) {
-            await saveMessage(convId, "assistant", assistantSoFar);
-            await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
+            appendMessage(convId, "assistant", assistantSoFar);
+            refresh();
           }
         },
         signal: controller.signal,
@@ -160,14 +150,19 @@ const Chat = () => {
             currentId={conversationId}
             onSelect={loadConversation}
             onNew={handleNewChat}
-            userId={userId}
+            userId={null}
           />
         )}
 
         {/* Main chat area */}
         <div className="flex flex-1 flex-col">
           <div className="flex items-center gap-1 px-2 py-1 border-b border-border">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
               {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
             </Button>
             <span className="text-xs text-muted-foreground">
@@ -183,7 +178,9 @@ const Chat = () => {
                     <Sparkles className="h-8 w-8 text-primary-foreground" />
                   </div>
                   <h2 className="text-2xl font-semibold text-foreground">How can I help you today?</h2>
-                  <p className="mt-2 text-sm text-muted-foreground">Ask anything — I can write, code, research, and create.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Ask anything — I can write, code, research, and create.
+                  </p>
                 </motion.div>
                 <div className="mt-8 grid w-full max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
                   {suggestions.map((s, i) => (

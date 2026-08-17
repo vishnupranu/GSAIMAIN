@@ -1,30 +1,33 @@
 import {
   Settings2, Presentation, Table2, FileText, Code2,
-  Palette, MessageCircle, Image, Music, Video,
+  Palette, MessageCircle, Image as ImageIcon, Music, Video,
   Headphones, Sparkles
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
 import SearchBar from "@/components/SearchBar";
 import ToolCard from "@/components/ToolCard";
 import AppFooter from "@/components/AppFooter";
 
-const tools = [
-  { icon: Settings2, label: "Custom Agent" },
-  { icon: Presentation, label: "AI Slides" },
-  { icon: Table2, label: "AI Sheets" },
-  { icon: FileText, label: "AI Docs" },
-  { icon: Code2, label: "AI Developer" },
-  { icon: Palette, label: "AI Designer" },
-  { icon: MessageCircle, label: "AI Chat", badge: "Unlimited" },
-  { icon: Image, label: "AI Image", badge: "Unlimited" },
-  { icon: Music, label: "AI Music" },
-  { icon: Video, label: "AI Video" },
-  { icon: Headphones, label: "AI Meeting Notes" },
-  { icon: Sparkles, label: "All Agents" },
-];
-
 const Index = () => {
+  const navigate = useNavigate();
+
+  const tools = [
+    { icon: Settings2, label: "Custom Agent", path: "/custom-agent" },
+    { icon: Presentation, label: "AI Slides", path: "/slides" },
+    { icon: Table2, label: "AI Sheets", path: "/sheets" },
+    { icon: FileText, label: "AI Docs", path: "/docs" },
+    { icon: Code2, label: "AI Developer", path: "/code" },
+    { icon: Palette, label: "AI Designer", path: "/designer" },
+    { icon: MessageCircle, label: "AI Chat", badge: "Unlimited", path: "/chat" },
+    { icon: ImageIcon, label: "AI Image", badge: "Unlimited", path: "/image" },
+    { icon: Music, label: "AI Music", path: "/music" },
+    { icon: Video, label: "AI Video", path: "/video" },
+    { icon: Headphones, label: "AI Meeting Notes", path: "/meeting-notes" },
+    { icon: Sparkles, label: "All Agents", path: "/agents" },
+  ];
+
   return (
     <AppLayout>
       <div className="flex flex-col items-center px-4 sm:px-6 pt-12 sm:pt-16">
@@ -34,7 +37,7 @@ const Index = () => {
           transition={{ duration: 0.5 }}
           className="mb-8 text-center text-3xl sm:text-4xl font-semibold tracking-tight text-foreground"
         >
-          Genspark AI Workspace 2.0
+          GUIDESOFT
         </motion.h1>
 
         <motion.div
@@ -46,19 +49,25 @@ const Index = () => {
           <SearchBar />
         </motion.div>
 
-        {/* Tool Cards */}
+        {/* 12 Functional AI Tool Cards */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.4, delay: 0.2 }}
-          className="mx-auto mt-8 sm:mt-12 grid w-full max-w-3xl grid-cols-3 gap-1 sm:grid-cols-6 lg:grid-cols-12 sm:gap-2"
+          className="mx-auto mt-8 sm:mt-12 grid w-full max-w-4xl grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-12 sm:gap-2"
         >
           {tools.map((tool) => (
-            <ToolCard key={tool.label} {...tool} />
+            <ToolCard
+              key={tool.label}
+              icon={tool.icon}
+              label={tool.label}
+              badge={tool.badge}
+              onClick={() => navigate(tool.path)}
+            />
           ))}
         </motion.div>
 
-        {/* Speakly Banner */}
+        {/* Speakly Voice / Meeting Banner */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -74,14 +83,20 @@ const Index = () => {
                 Don't type, just Speakly
               </h3>
               <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
-                AI turns your speech into clear and polished messages, emails, and writings. 4x faster than typing!
+                AI turns your speech into clear and polished meeting notes, emails, and deliverables.
               </p>
               <div className="mt-3 flex items-center gap-3">
-                <button className="rounded-lg bg-foreground px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90">
-                  Download
+                <button
+                  onClick={() => navigate("/meeting-notes")}
+                  className="rounded-lg bg-foreground px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  Start Speaking
                 </button>
-                <button className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-                  Learn more
+                <button
+                  onClick={() => navigate("/agents")}
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Explore All Studios
                 </button>
               </div>
             </div>

@@ -1,79 +1,46 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { Plus, MessageCircle, Trash2, Loader2 } from "lucide-react";
+import { Plus, MessageCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { format, isToday, isYesterday, isThisWeek } from "date-fns";
-
-interface Conversation {
-  id: string;
-  title: string;
-  model: string;
-  created_at: string;
-  updated_at: string;
-}
+import { isToday, isYesterday, isThisWeek } from "date-fns";
+import { useConversations, type Conversation } from "@/hooks/useConversations";
 
 interface ChatSidebarProps {
   currentId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
-  userId: string | null;
+  userId: string | null; // kept for API compatibility; not used (localStorage is session-agnostic)
 }
 
-const ChatSidebar = ({ currentId, onSelect, onNew, userId }: ChatSidebarProps) => {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(false);
+function groupConversations(convs: Conversation[]) {
+  const today: Conversation[] = [];
+  const yesterday: Conversation[] = [];
+  const thisWeek: Conversation[] = [];
+  const older: Conversation[] = [];
 
-  useEffect(() => {
-    if (!userId) {
-      setConversations([]);
-      return;
-    }
-    loadConversations();
-  }, [userId]);
+  convs.forEach((c) => {
+    const d = new Date(c.updatedAt);
+    if (isToday(d)) today.push(c);
+    else if (isYesterday(d)) yesterday.push(c);
+    else if (isThisWeek(d)) thisWeek.push(c);
+    else older.push(c);
+  });
 
-  const loadConversations = async () => {
-    if (!userId) return;
-    setLoading(true);
-    const { data } = await supabase
-      .from("conversations")
-      .select("*")
-      .eq("user_id", userId)
-      .order("updated_at", { ascending: false })
-      .limit(50);
-    setConversations(data || []);
-    setLoading(false);
-  };
+  const groups: { label: string; items: Conversation[] }[] = [];
+  if (today.length) groups.push({ label: "Today", items: today });
+  if (yesterday.length) groups.push({ label: "Yesterday", items: yesterday });
+  if (thisWeek.length) groups.push({ label: "This Week", items: thisWeek });
+  if (older.length) groups.push({ label: "Older", items: older });
+  return groups;
+}
 
-  const deleteConversation = async (id: string, e: React.MouseEvent) => {
+const ChatSidebar = ({ currentId, onSelect, onNew }: ChatSidebarProps) => {
+  const { conversations, deleteConversation } = useConversations();
+
+  const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await supabase.from("chat_messages").delete().eq("conversation_id", id);
-    await supabase.from("conversations").delete().eq("id", id);
-    setConversations((prev) => prev.filter((c) => c.id !== id));
+    deleteConversation(id);
     if (currentId === id) onNew();
-  };
-
-  const groupConversations = (convs: Conversation[]) => {
-    const groups: { label: string; items: Conversation[] }[] = [];
-    const today: Conversation[] = [];
-    const yesterday: Conversation[] = [];
-    const thisWeek: Conversation[] = [];
-    const older: Conversation[] = [];
-
-    convs.forEach((c) => {
-      const d = new Date(c.updated_at);
-      if (isToday(d)) today.push(c);
-      else if (isYesterday(d)) yesterday.push(c);
-      else if (isThisWeek(d)) thisWeek.push(c);
-      else older.push(c);
-    });
-
-    if (today.length) groups.push({ label: "Today", items: today });
-    if (yesterday.length) groups.push({ label: "Yesterday", items: yesterday });
-    if (thisWeek.length) groups.push({ label: "This Week", items: thisWeek });
-    if (older.length) groups.push({ label: "Older", items: older });
-    return groups;
   };
 
   const groups = groupConversations(conversations);
@@ -88,13 +55,10 @@ const ChatSidebar = ({ currentId, onSelect, onNew, userId }: ChatSidebarProps) =
       </div>
 
       <ScrollArea className="flex-1">
-        {!userId && (
-          <p className="p-4 text-xs text-muted-foreground text-center">Sign in to save chat history</p>
-        )}
-        {loading && (
-          <div className="flex items-center justify-center p-4">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
+        {conversations.length === 0 && (
+          <p className="p-4 text-xs text-muted-foreground text-center">
+            No conversations yet. Start chatting!
+          </p>
         )}
         {groups.map((group) => (
           <div key={group.label}>
@@ -113,7 +77,7 @@ const ChatSidebar = ({ currentId, onSelect, onNew, userId }: ChatSidebarProps) =
                 <MessageCircle className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                 <span className="flex-1 truncate text-foreground">{c.title}</span>
                 <button
-                  onClick={(e) => deleteConversation(c.id, e)}
+                  onClick={(e) => handleDelete(c.id, e)}
                   className="hidden h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive group-hover:flex"
                 >
                   <Trash2 className="h-3 w-3" />

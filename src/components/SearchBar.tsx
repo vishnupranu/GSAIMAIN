@@ -58,7 +58,7 @@ const SearchBar = () => {
           <span>📁</span>
           <span>📊</span>
         </div>
-        <span>Genspark supports personalized tools</span>
+        <span>GUIDESOFT supports personalized tools</span>
         <button className="ml-1 text-muted-foreground hover:text-foreground">×</button>
       </div>
     </div>

@@ -1,130 +1,209 @@
+import { useState } from "react";
 import {
   Settings2, Presentation, Table2, FileText, Code2,
   Palette, Camera, Film, Headphones, Search,
-  ShieldCheck, Phone, Download
+  ShieldCheck, Music, Video, Sparkles, MessageCircle, Image as ImageIcon
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import AppLayout from "@/components/AppLayout";
 import AgentCard from "@/components/AgentCard";
 
-const agents = [
+const ALL_AGENTS = [
   {
     icon: Settings2,
-    title: "Genspark Super Agent",
+    title: "Custom Agent Builder",
+    routeTo: "custom-agent",
+    category: "Agents",
+    badge: "Featured",
     tasks: [
-      "Plan Travel to San Diego & AI Call for Me to Make Reservation",
-      "AI Call for Me to Make Restaurant Reservation",
+      "Create a tailored Senior Software Architect agent",
+      "Build a Growth Marketing & SEO copywriting bot",
     ],
   },
   {
     icon: Presentation,
     title: "AI Slides",
+    routeTo: "slides",
+    category: "Productivity",
     tasks: [
-      "Understanding Bauhaus Design: Principles and Real-World Applications.",
-      "Popular Music Trends 2025.",
+      "Create a 10-slide pitch deck for an AI Developer Copilot",
+      "Generate Bauhaus Design principles presentation",
     ],
   },
   {
     icon: Table2,
     title: "AI Sheets",
+    routeTo: "sheets",
+    category: "Productivity",
     tasks: [
-      "NVIDIA Financial Statements Compilation 2021-2025",
-      "Supabase Sales Share Subcategory Analysis October 2025",
+      "Compile a 5-Year SaaS Financial Projection Model",
+      "Build a Marketing ROI & Conversion Rate Matrix",
     ],
   },
   {
     icon: FileText,
     title: "AI Docs",
+    routeTo: "docs",
+    category: "Productivity",
     tasks: [
-      "Create a resume for John Doe",
-      "Create a user survey for Genspark",
+      "Draft a Product Requirements Document (PRD) for Mobile App",
+      "Write an Executive Resume & Professional Biography",
     ],
   },
   {
     icon: Code2,
     title: "AI Developer",
+    routeTo: "code",
+    category: "Engineering",
+    badge: "Unlimited",
     tasks: [
-      "Build a Super Mario Web Game.",
-      "Build a booking website for a salon.",
+      "Build a playable Retro Arcade Web Game in HTML/CSS/JS",
+      "Create a Python FastAPI CRUD Backend with Auth",
     ],
   },
   {
     icon: Palette,
     title: "AI Designer",
+    routeTo: "designer",
+    category: "Design",
     tasks: [
-      "Design a product poster for my canned coffee",
-      "Create a PopMart-style figure based on my brand style.",
+      "Design a futuristic vector SVG cyber logo & icon",
+      "Create a modern glassmorphic UI card wireframe",
     ],
   },
   {
-    icon: Camera,
-    title: "Photo Genius",
+    icon: MessageCircle,
+    title: "AI Chat",
+    routeTo: "chat",
+    category: "General",
+    badge: "Unlimited",
+    tasks: [
+      "Ask anything with multi-model provider orchestration",
+      "Analyze and solve complex multi-step reasoning problems",
+    ],
+  },
+  {
+    icon: ImageIcon,
+    title: "AI Image",
+    routeTo: "image",
+    category: "Design",
+    badge: "Unlimited",
+    tasks: [
+      "A futuristic cyberpunk skyline at sunset with flying cars",
+      "A serene Japanese zen garden with blooming cherry blossoms",
+    ],
+  },
+  {
+    icon: Music,
+    title: "AI Music",
+    routeTo: "music",
+    category: "Media",
     badge: "New",
     tasks: [
-      "Change my hairstyle to long wavy hair",
-      "Put me in front of the Eiffel Tower in Paris",
+      "Compose an 80s Retro Synthwave track with synth preview",
+      "Generate Lo-Fi Study Chillhop lyrics and chord progressions",
     ],
   },
   {
-    icon: Film,
-    title: "Clip Genius",
+    icon: Video,
+    title: "AI Video",
+    routeTo: "video",
+    category: "Media",
+    badge: "New",
     tasks: [
-      "Edit the video into a highlight focusing only on the LA Dodgers team.",
-      "Cut kill highlights from these three LOL videos into one",
+      "Produce a Sci-Fi cinematic storyboard with camera directions",
+      "Create a 30-second product commercial script & voiceover",
     ],
   },
   {
     icon: Headphones,
-    title: "AI Pods",
+    title: "AI Meeting Notes",
+    routeTo: "meeting-notes",
+    category: "Productivity",
     tasks: [
-      "Create a podcast summarizing this week's major AI industry news",
-      "Create a podcast explaining this paper",
+      "Live microphone speech-to-text dictation & executive recap",
+      "Extract action items, decisions, and ready-to-send email",
     ],
   },
   {
     icon: Search,
     title: "Deep Research",
+    routeTo: "chat",
+    category: "Research",
     tasks: [
-      "Complex Social Structures of Orcas in the Pacific Northwest",
-      "The Evolution of Serve Techniques in Professional Tennis Over the Past 20 Years",
+      "Analyze complex social structures of Pacific orcas",
+      "Evolution of serve techniques in professional tennis 2000-2025",
     ],
   },
   {
     icon: ShieldCheck,
     title: "Fact Check",
+    routeTo: "chat",
+    category: "Research",
     tasks: [
-      "Coca-Cola cut ties with Taylor Swift over her political endorsement.",
-      'The new "5-Day Fast Diet" trending on social media guarantees 10kg weight loss in a month without exercise.',
-    ],
-  },
-  {
-    icon: Phone,
-    title: "Call For Me",
-    tasks: [
-      "Book a table at Lechon for next Wednesday's birthday celebration",
-      "Check if BusterPro Tennis has Yonex 2025 EZONE tennis racket in stock",
-    ],
-  },
-  {
-    icon: Download,
-    title: "Download For Me",
-    tasks: [
-      "Download papers mentioned in a LinkedIn link",
-      "Download videos from Genspark's Korean Tiktok",
+      "Fact-check claims regarding AI job market trends in 2030",
+      "Verify scientific consensus on renewable energy efficiency",
     ],
   },
 ];
 
+const CATEGORIES = ["All", "Productivity", "Engineering", "Design", "Media", "Agents", "Research"];
+
 const Agents = () => {
+  const [selectedCat, setSelectedCat] = useState("All");
+  const [search, setSearch] = useState("");
+
+  const filteredAgents = ALL_AGENTS.filter((agent) => {
+    const matchesCat = selectedCat === "All" || agent.category === selectedCat;
+    const matchesSearch =
+      agent.title.toLowerCase().includes(search.toLowerCase()) ||
+      agent.tasks.some((t) => t.toLowerCase().includes(search.toLowerCase()));
+    return matchesCat && matchesSearch;
+  });
+
   return (
     <AppLayout>
-      <div className="px-8 py-8">
-        <h1 className="text-2xl font-bold text-foreground">Advanced Agents</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Work autonomously on your complex tasks.
-        </p>
+      <div className="px-8 py-8 space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Sparkles className="h-6 w-6" />
+              <span>Advanced Agents & Studios Hub</span>
+            </h1>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Autonomous workspaces and specialized AI engines ready to generate deliverables instantly.
+            </p>
+          </div>
 
-        <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {agents.map((agent) => (
+          <div className="w-72">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search agents & studios..."
+              className="text-xs h-9"
+            />
+          </div>
+        </div>
+
+        {/* Category Filters */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          {CATEGORIES.map((cat) => (
+            <Button
+              key={cat}
+              variant={selectedCat === cat ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedCat(cat)}
+              className="h-8 text-xs font-semibold rounded-lg"
+            >
+              {cat}
+            </Button>
+          ))}
+        </div>
+
+        {/* Agents Grid */}
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {filteredAgents.map((agent) => (
             <AgentCard key={agent.title} {...agent} />
           ))}
         </div>

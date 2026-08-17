@@ -9,6 +9,14 @@ import Auth from "./pages/Auth";
 import Chat from "./pages/Chat";
 import CodeGen from "./pages/CodeGen";
 import ImageGen from "./pages/ImageGen";
+import CustomAgent from "./pages/CustomAgent";
+import SlidesGen from "./pages/SlidesGen";
+import SheetsGen from "./pages/SheetsGen";
+import DocsGen from "./pages/DocsGen";
+import DesignerGen from "./pages/DesignerGen";
+import MusicGen from "./pages/MusicGen";
+import VideoGen from "./pages/VideoGen";
+import MeetingNotes from "./pages/MeetingNotes";
 import Pricing from "./pages/Pricing";
 import HelpCenter from "./pages/HelpCenter";
 import Business from "./pages/Business";
@@ -30,6 +38,14 @@ const App = () => (
           <Route path="/chat" element={<Chat />} />
           <Route path="/code" element={<CodeGen />} />
           <Route path="/image" element={<ImageGen />} />
+          <Route path="/custom-agent" element={<CustomAgent />} />
+          <Route path="/slides" element={<SlidesGen />} />
+          <Route path="/sheets" element={<SheetsGen />} />
+          <Route path="/docs" element={<DocsGen />} />
+          <Route path="/designer" element={<DesignerGen />} />
+          <Route path="/music" element={<MusicGen />} />
+          <Route path="/video" element={<VideoGen />} />
+          <Route path="/meeting-notes" element={<MeetingNotes />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/helpcenter" element={<HelpCenter />} />
           <Route path="/business" element={<Business />} />

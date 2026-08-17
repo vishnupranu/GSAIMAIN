@@ -37,3 +37,8 @@ backend/*.egg-info/
 
 # Keep .env.example but ignore actual .env files in backend
 backend/.env
+
+# Test outputs
+test-results/
+playwright-report/
+.playwright-artifacts-*/

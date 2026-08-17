@@ -96,6 +96,18 @@ class WebhookDashboardPayload(BaseModel):
     data: Dict[str, Any] = {}
 
 
+class WebhookPaymentPayload(BaseModel):
+    transaction_id: str
+    plan_name: str
+    amount: str
+    period: str
+    payment_method: str  # gpay | upi | card
+    upi_id: Optional[str] = None
+    user_id: Optional[str] = None
+    timestamp: Optional[str] = None
+    metadata: Dict[str, Any] = {}
+
+
 # ── MCP Agent ────────────────────────────────────────────────────────────────
 
 class AgentTool(BaseModel):

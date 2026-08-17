@@ -2,17 +2,30 @@ import { Link } from "react-router-dom";
 
 const footerSections = [
   {
-    title: "PRODUCTS",
+    title: "STUDIOS",
     links: [
-      { label: "AI Browser", href: "/" },
-      { label: "Speakly", href: "/" },
+      { label: "AI Developer", href: "/code" },
+      { label: "AI Designer", href: "/designer" },
+      { label: "AI Music", href: "/music" },
+      { label: "AI Video", href: "/video" },
     ],
   },
   {
-    title: "TOOLS",
+    title: "PRODUCTIVITY",
     links: [
-      { label: "AI Slides", href: "/" },
-      { label: "AI Docs", href: "/" },
+      { label: "AI Slides", href: "/slides" },
+      { label: "AI Sheets", href: "/sheets" },
+      { label: "AI Docs", href: "/docs" },
+      { label: "AI Meeting Notes", href: "/meeting-notes" },
+    ],
+  },
+  {
+    title: "INTELLIGENCE",
+    links: [
+      { label: "AI Chat Unlimited", href: "/chat" },
+      { label: "AI Image Studio", href: "/image" },
+      { label: "Custom Agent", href: "/custom-agent" },
+      { label: "All Agents Hub", href: "/agents" },
     ],
   },
   {
@@ -21,15 +34,7 @@ const footerSections = [
       { label: "Business", href: "/business" },
       { label: "Pricing", href: "/pricing" },
       { label: "Help Center", href: "/helpcenter" },
-      { label: "Privacy", href: "/" },
-      { label: "Terms", href: "/" },
-    ],
-  },
-  {
-    title: "AGENTS",
-    links: [
-      { label: "All Agents", href: "/agents" },
-      { label: "Custom Agent", href: "/" },
+      { label: "Dashboard", href: "/dashboard" },
     ],
   },
 ];
@@ -59,7 +64,7 @@ const AppFooter = () => {
         ))}
       </div>
       <div className="mx-auto mt-10 max-w-5xl border-t border-border pt-6 text-center text-xs text-muted-foreground">
-        © {new Date().getFullYear()} Genspark. All rights reserved.
+        © {new Date().getFullYear()} GUIDESOFT. All rights reserved.
       </div>
     </footer>
   );

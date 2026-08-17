@@ -7,6 +7,7 @@ from .ollama_provider import OllamaProvider
 from .openrouter_provider import OpenRouterProvider
 from .litellm_provider import LiteLLMProvider
 from .huggingface_provider import HuggingFaceProvider
+from .anthropic_provider import AnthropicProvider
 
 __all__ = [
     "LLMProvider",
@@ -18,4 +19,5 @@ __all__ = [
     "OpenRouterProvider",
     "LiteLLMProvider",
     "HuggingFaceProvider",
+    "AnthropicProvider",
 ]

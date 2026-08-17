@@ -21,6 +21,8 @@ from ..providers.lovable_provider import LovableProvider
 from ..providers.ollama_provider import OllamaProvider
 from ..providers.openai_provider import OpenAIProvider
 from ..providers.openrouter_provider import OpenRouterProvider
+from ..providers.anthropic_provider import AnthropicProvider
+from ..stats import stats_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
@@ -35,6 +37,7 @@ PROVIDER_MAP: dict[str, LLMProvider] = {
     "openrouter": OpenRouterProvider(),
     "litellm": LiteLLMProvider(),
     "huggingface": HuggingFaceProvider(),
+    "anthropic": AnthropicProvider(),
 }
 
 CORS_HEADERS = {
@@ -69,8 +72,8 @@ async def _stream_with_fallback(request: ChatRequest) -> AsyncGenerator[str, Non
     """
     chain = _resolve_provider_chain(request.model)
 
-    # Ensure Lovable and Ollama are always at the end of the chain as ultimate fallbacks
-    for fallback_name in ("lovable", "ollama"):
+    # Ensure Ollama (no API key needed) is tried before Lovable as ultimate fallback
+    for fallback_name in ("ollama", "lovable"):
         fallback = PROVIDER_MAP[fallback_name]
         if fallback not in chain:
             chain.append(fallback)
@@ -88,6 +91,8 @@ async def _stream_with_fallback(request: ChatRequest) -> AsyncGenerator[str, Non
                 max_tokens=request.max_tokens,
             ):
                 yield chunk
+            # Track successful delivery
+            stats_store.increment_chat(provider=provider.name, model=request.model)
             return  # Success — stop trying other providers
 
         except (RateLimitError, AuthError) as exc:
@@ -164,20 +169,42 @@ async def chat_stream(request: ChatRequest, http_request: Request):
     summary="List supported models",
 )
 async def list_models():
-    """Returns all model IDs supported by the frontend ModelSelector."""
+    """Returns all model IDs supported across all providers."""
     return {
         "models": [
-            {"id": "google/gemini-3-flash-preview", "provider": "Google", "speed": "Fast"},
-            {"id": "google/gemini-2.5-flash", "provider": "Google", "speed": "Fast"},
-            {"id": "google/gemini-2.5-pro", "provider": "Google", "speed": "Slow"},
-            {"id": "google/gemini-3.1-pro-preview", "provider": "Google", "speed": "Medium"},
-            {"id": "google/gemini-2.5-flash-lite", "provider": "Google", "speed": "Fastest"},
-            {"id": "openai/gpt-5", "provider": "OpenAI", "speed": "Medium"},
-            {"id": "openai/gpt-5-mini", "provider": "OpenAI", "speed": "Fast"},
-            {"id": "openai/gpt-5-nano", "provider": "OpenAI", "speed": "Fastest"},
-            {"id": "openai/gpt-5.2", "provider": "OpenAI", "speed": "Medium"},
-            {"id": "ollama/llama3.2", "provider": "Ollama (Local)", "speed": "Fast"},
-            {"id": "ollama/mistral", "provider": "Ollama (Local)", "speed": "Fast"},
-            {"id": "litellm/gpt-4o", "provider": "LiteLLM", "speed": "Medium"},
+            # Google Gemini
+            {"id": "google/gemini-3-flash-preview", "label": "Gemini 3 Flash", "provider": "Google", "speed": "Fast"},
+            {"id": "google/gemini-2.5-flash", "label": "Gemini 2.5 Flash", "provider": "Google", "speed": "Fast"},
+            {"id": "google/gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash Lite", "provider": "Google", "speed": "Fastest"},
+            {"id": "google/gemini-2.5-pro", "label": "Gemini 2.5 Pro", "provider": "Google", "speed": "Slow"},
+            {"id": "google/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro", "provider": "Google", "speed": "Medium"},
+            # OpenAI
+            {"id": "openai/gpt-5", "label": "GPT-5", "provider": "OpenAI", "speed": "Medium"},
+            {"id": "openai/gpt-5-mini", "label": "GPT-5 Mini", "provider": "OpenAI", "speed": "Fast"},
+            {"id": "openai/gpt-5-nano", "label": "GPT-5 Nano", "provider": "OpenAI", "speed": "Fastest"},
+            {"id": "openai/gpt-4o", "label": "GPT-4o", "provider": "OpenAI", "speed": "Fast"},
+            {"id": "openai/gpt-4o-mini", "label": "GPT-4o Mini", "provider": "OpenAI", "speed": "Fastest"},
+            # Anthropic
+            {"id": "anthropic/claude-opus-4", "label": "Claude Opus 4", "provider": "Anthropic", "speed": "Slow"},
+            {"id": "anthropic/claude-sonnet-4-5", "label": "Claude Sonnet 4.5", "provider": "Anthropic", "speed": "Medium"},
+            {"id": "anthropic/claude-3-5-haiku", "label": "Claude 3.5 Haiku", "provider": "Anthropic", "speed": "Fast"},
+            {"id": "anthropic/claude-3-5-sonnet", "label": "Claude 3.5 Sonnet", "provider": "Anthropic", "speed": "Medium"},
+            # Ollama (Local)
+            {"id": "ollama/llama3.2", "label": "Llama 3.2", "provider": "Ollama (Local)", "speed": "Fast"},
+            {"id": "ollama/mistral", "label": "Mistral", "provider": "Ollama (Local)", "speed": "Fast"},
+            {"id": "ollama/codellama", "label": "CodeLlama", "provider": "Ollama (Local)", "speed": "Medium"},
+            {"id": "ollama/gemma3", "label": "Gemma 3", "provider": "Ollama (Local)", "speed": "Fast"},
+            {"id": "ollama/phi4", "label": "Phi-4", "provider": "Ollama (Local)", "speed": "Fast"},
+            # OpenRouter
+            {"id": "openrouter/meta-llama/llama-3.3-70b-instruct", "label": "Llama 3.3 70B", "provider": "OpenRouter", "speed": "Fast"},
+            {"id": "openrouter/mistralai/mistral-large", "label": "Mistral Large", "provider": "OpenRouter", "speed": "Medium"},
+            {"id": "openrouter/deepseek/deepseek-chat", "label": "DeepSeek Chat", "provider": "OpenRouter", "speed": "Fast"},
+            # HuggingFace
+            {"id": "huggingface/meta-llama/Llama-3.1-8B-Instruct", "label": "Llama 3.1 8B", "provider": "HuggingFace", "speed": "Fast"},
+            {"id": "huggingface/mistralai/Mistral-7B-Instruct-v0.3", "label": "Mistral 7B", "provider": "HuggingFace", "speed": "Fast"},
+            # LiteLLM
+            {"id": "litellm/gpt-4o", "label": "GPT-4o (LiteLLM)", "provider": "LiteLLM", "speed": "Fast"},
+            {"id": "litellm/claude-3-5-sonnet", "label": "Claude 3.5 Sonnet (LiteLLM)", "provider": "LiteLLM", "speed": "Medium"},
         ]
     }
+

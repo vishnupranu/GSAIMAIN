@@ -21,6 +21,7 @@ from app.routers import image as image_router
 from app.routers import search as search_router
 from app.routers import webhooks as webhooks_router
 from app.mcp_agent import router as agent_router
+from app.stats import stats_store
 
 # ── Logging configuration ─────────────────────────────────────────────────────
 
@@ -134,6 +135,11 @@ A centralized FastAPI backend that provides:
             "uptime_seconds": round(time.time() - _START_TIME, 2),
         })
 
+    @app.get("/api/v1/stats", tags=["System"])
+    async def get_stats():
+        """Returns live in-memory usage statistics."""
+        return stats_store.to_dict()
+
     @app.get("/api/v1/providers", tags=["System"])
     async def list_providers():
         """Returns configured provider status and fallback map."""
@@ -146,7 +152,7 @@ A centralized FastAPI backend that provides:
                 "openrouter": bool(settings.openrouter_api_key),
                 "huggingface": bool(settings.huggingface_api_key),
                 "ollama": settings.ollama_enabled,
-                "litellm": True,  # always available if LiteLLM server is running
+                "litellm": True,
             },
             "fallback_map": settings.provider_fallback_map,
         }

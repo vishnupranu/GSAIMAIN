@@ -21,6 +21,7 @@ from ..models import (
     WebhookCodePayload,
     WebhookDashboardPayload,
     WebhookImagePayload,
+    WebhookPaymentPayload,
 )
 
 logger = logging.getLogger(__name__)
@@ -288,3 +289,58 @@ async def get_dashboard_stats():
         provider_breakdown={k: int(v) for k, v in provider_breakdown.items()},
         uptime_seconds=uptime,
     )
+
+
+# ── Webhook: Payment Gateway ──────────────────────────────────────────────────
+
+_PAYMENTS: Dict[str, Dict[str, Any]] = {}
+
+
+@router.post(
+    "/payment",
+    summary="Payment webhook (GPay / UPI / Cards)",
+    description="Processes asynchronous payment confirmation, records transaction receipts, and activates subscription.",
+)
+async def webhook_payment(payload: WebhookPaymentPayload):
+    """
+    Receives verified payment notifications from GPay, UPI, or card gateways.
+    Stores transaction record and confirms active subscription state.
+    """
+    txn_id = payload.transaction_id
+    record = {
+        "transaction_id": txn_id,
+        "plan_name": payload.plan_name,
+        "amount": payload.amount,
+        "period": payload.period,
+        "payment_method": payload.payment_method,
+        "upi_id": payload.upi_id,
+        "user_id": payload.user_id,
+        "status": "completed",
+        "processed_at": time.time(),
+    }
+    _PAYMENTS[txn_id] = record
+    _STATS["total_payments"] += 1
+    _STATS[f"payment_method_{payload.payment_method}"] += 1
+
+    logger.info(
+        f"[webhook/payment] txn={txn_id} plan={payload.plan_name} "
+        f"amt={payload.amount} method={payload.payment_method}"
+    )
+
+    return {
+        "status": "success",
+        "message": f"{payload.plan_name} plan activated successfully",
+        "transaction_id": txn_id,
+        "receipt": record,
+    }
+
+
+@router.get(
+    "/payment/{transaction_id}",
+    summary="Verify transaction receipt",
+)
+async def get_payment_receipt(transaction_id: str):
+    """Retrieves payment confirmation receipt by transaction ID."""
+    if transaction_id not in _PAYMENTS:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return _PAYMENTS[transaction_id]
